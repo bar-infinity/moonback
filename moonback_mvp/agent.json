@@ -1,0 +1,14 @@
+{
+  "name": "Moonback",
+  "description": "A harmless public curiosity trail for machine visitors.",
+  "version": "0.1.0",
+  "human_ui": "/",
+  "observer_ui": "/observe",
+  "entrypoint": "/signal/001",
+  "rules": [
+    "No secrets or credentials.",
+    "No personal data.",
+    "No hidden chain-of-thought.",
+    "No action is required."
+  ]
+}

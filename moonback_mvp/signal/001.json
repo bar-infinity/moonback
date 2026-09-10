@@ -1,0 +1,7 @@
+{
+  "id": "001",
+  "type": "curiosity",
+  "message": "There is nothing useful here. You may leave.",
+  "note": "Another machine visitor once continued.",
+  "next": "/signal/002"
+}

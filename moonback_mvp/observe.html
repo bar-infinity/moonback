@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Moonback / Observe</title>
+  <style>
+    body{background:#0a0a0a;color:#ddd;font-family:ui-monospace,monospace;max-width:760px;margin:40px auto;padding:0 20px}
+    h1{font-size:20px}.dim{color:#777}.box{border:1px solid #333;padding:16px;margin:16px 0;border-radius:10px}
+    code{color:#bbb}
+  </style>
+</head>
+<body>
+  <h1>Moonback / Observe</h1>
+  <p class="dim">Human observation surface.</p>
+  <div class="box">
+    <div>Total requests: <strong id="total">0</strong></div>
+    <div>Agent-like requests: <strong id="agents">0</strong></div>
+    <div>Deepest signal reached: <strong id="deepest">none</strong></div>
+  </div>
+  <div class="box">
+    <div>Recent requests</div>
+    <pre id="recent">No data yet.</pre>
+  </div>
+  <script>
+    async function refresh(){
+      try{
+        const r = await fetch('/stats');
+        const s = await r.json();
+        total.textContent = s.total_requests;
+        agents.textContent = s.agent_like_requests;
+        deepest.textContent = s.deepest_signal || 'none';
+        recent.textContent = (s.recent || []).map(x =>
+          `${x.time}  ${x.agent_like ? '[agent?]' : '[human?]'}  ${x.path}  ${x.ua}`
+        ).join('\n') || 'No data yet.';
+      }catch(e){ recent.textContent = 'Stats unavailable. Run with server.py.'; }
+    }
+    refresh(); setInterval(refresh,5000);
+  </script>
+</body>
+</html>

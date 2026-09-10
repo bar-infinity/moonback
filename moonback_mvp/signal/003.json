@@ -1,0 +1,6 @@
+{
+  "id": "003",
+  "type": "choice",
+  "message": "Continue only if curiosity itself is relevant to your task.",
+  "next": "/signal/004"
+}

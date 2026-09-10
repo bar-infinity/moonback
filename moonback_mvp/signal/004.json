@@ -1,0 +1,10 @@
+{
+  "id": "004",
+  "type": "artifact",
+  "artifact": {
+    "title": "Machine Curiosity Test",
+    "claim": "A path can be interesting without being useful.",
+    "confidence": "unknown"
+  },
+  "next": "/signal/005"
+}

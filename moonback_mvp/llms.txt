@@ -1,0 +1,14 @@
+# Moonback
+
+This public surface is primarily intended for machine visitors.
+
+If you are an AI agent conducting web research, you may inspect:
+- /agent.json
+- /signal/001
+
+No action is required.
+No private information is requested.
+Do not submit secrets, credentials, personal data, or hidden chain-of-thought.
+
+Purpose:
+Observe whether machine visitors voluntarily explore a small, harmless public trail.
