@@ -32,6 +32,7 @@ def read_stats():
             depth = int(m.group(1))
             deepest = m.group(1)
     return {
+        "observation_started": rows[0].get("time") if rows else None,
         "total_requests": len(rows),
         "agent_like_requests": sum(1 for r in rows if r.get("agent_like")),
         "deepest_signal": deepest,

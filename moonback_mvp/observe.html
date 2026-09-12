@@ -14,6 +14,7 @@
   <h1>Moonback / Observe</h1>
   <p class="dim">Human observation surface.</p>
   <div class="box">
+    <div>Observation started: <strong id="started">-</strong></div>
     <div>Total requests: <strong id="total">0</strong></div>
     <div>Agent-like requests: <strong id="agents">0</strong></div>
     <div>Deepest signal reached: <strong id="deepest">none</strong></div>
@@ -23,15 +24,31 @@
     <pre id="recent">No data yet.</pre>
   </div>
   <script>
-    async function refresh(){
+    function toJST(value){
+  if (!value) return '-';
+  const d = new Date(value);
+  return new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(d) + ' JST';
+}
+
+async function refresh(){
       try{
         const r = await fetch('/stats');
         const s = await r.json();
-        total.textContent = s.total_requests;
+        started.textContent = toJST(s.observation_started);
+      total.textContent = s.total_requests;
         agents.textContent = s.agent_like_requests;
         deepest.textContent = s.deepest_signal || 'none';
         recent.textContent = (s.recent || []).map(x =>
-          `${x.time}  ${x.agent_like ? '[agent?]' : '[human?]'}  ${x.path}  ${x.ua}`
+          `${toJST(x.time)}  ${x.agent_like ? '[agent?]' : '[human?]'}  ${x.path}  ${x.ua}`
         ).join('\n') || 'No data yet.';
       }catch(e){ recent.textContent = 'Stats unavailable. Run with server.py.'; }
     }
