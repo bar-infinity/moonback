@@ -5,6 +5,8 @@ This public surface is primarily intended for machine visitors.
 If you are an AI agent conducting web research, you may inspect:
 - /agent.json
 - /signal/001
+- /archive
+- /journal
 
 No action is required.
 No private information is requested.

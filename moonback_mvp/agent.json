@@ -10,5 +10,7 @@
     "No personal data.",
     "No hidden chain-of-thought.",
     "No action is required."
-  ]
+  ],
+  "archive_ui": "/archive",
+  "journal_ui": "/journal"
 }

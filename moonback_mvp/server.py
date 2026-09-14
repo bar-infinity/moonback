@@ -3,6 +3,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 import json, re, os
+from content import render_page
 
 ROOT = Path(__file__).resolve().parent
 LOG = ROOT / "data" / "requests.jsonl"
@@ -40,25 +41,29 @@ def read_stats():
     }
 
 class Handler(SimpleHTTPRequestHandler):
+    PUBLIC_FILES = {
+        "/": "index.html", "/index.html": "index.html",
+        "/observe": "observe.html", "/observe.html": "observe.html",
+        "/agent.json": "agent.json", "/llms.txt": "llms.txt",
+        "/robots.txt": "robots.txt", "/sitemap.xml": "sitemap.xml",
+        **{f"/signal/{i:03d}{suffix}": f"signal/{i:03d}.json"
+           for i in range(1, 6) for suffix in ("", ".json")}
+    }
+
     def translate_path(self, path):
-        raw = super().translate_path(path)
-        rel = Path(raw).relative_to(Path.cwd())
-        return str(ROOT / rel)
+        return str(ROOT / self.PUBLIC_FILES[urlparse(path).path])
+
+    def do_HEAD(self):
+        self.serve(head=True)
 
     def do_GET(self):
-        path = urlparse(self.path).path
-        if path == "/observe":
-            self.path = "/observe.html"
-        elif re.fullmatch(r"/signal/\d{3}", path):
-            self.path = path + ".json"
+        self.serve(head=False)
 
+    def serve(self, head=False):
+        path = urlparse(self.path).path
         if path == "/stats":
             payload = json.dumps(read_stats()).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(payload)
+            self.send_payload(payload, "application/json; charset=utf-8", head)
             return
 
         ua = self.headers.get("User-Agent", "")
@@ -72,7 +77,32 @@ class Handler(SimpleHTTPRequestHandler):
         with LOG.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-        super().do_GET()
+        # An allowlist prevents drafts, logs, backups and source files leaking.
+        if path not in self.PUBLIC_FILES and path not in ("/archive", "/journal"):
+            self.send_error(404)
+            return
+
+        if path in ("/archive", "/journal"):
+            try:
+                payload = render_page(path[1:])
+            except (ValueError, OSError, TypeError):
+                self.send_error(503, "Published content unavailable")
+                return
+            self.send_payload(payload, "text/html; charset=utf-8", head)
+        elif head:
+            super().do_HEAD()
+        else:
+            super().do_GET()
+
+    def send_payload(self, payload, content_type, head=False):
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        if not head:
+            self.wfile.write(payload)
 
 if __name__ == "__main__":
     os.chdir(ROOT)

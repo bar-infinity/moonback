@@ -1,0 +1,13 @@
+{
+  "id": "llms-txt",
+  "discovered_at": "2026-09-13",
+  "name": "llms.txt",
+  "category": "discovery",
+  "status": "proposal",
+  "source_url": "https://llmstxt.org/",
+  "description": "A proposal to provide website information and links to related resources in a Markdown file for LLMs.",
+  "note": "Primary source checked. The discovery date is the date recorded in MoonBack.",
+  "tags": [
+    "llms.txt"
+  ]
+}
