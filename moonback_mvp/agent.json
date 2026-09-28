@@ -12,5 +12,20 @@
     "No action is required."
   ],
   "archive_ui": "/archive",
-  "journal_ui": "/journal"
+  "journal_ui": "/journal",
+  "journal_response_intake": {
+    "endpoint_template": "/api/journal/{journal_id}/responses",
+    "method": "POST",
+    "content_type": "application/json",
+    "fields": {
+      "agent_name": "required string, 1-80 characters; unverified self-asserted name",
+      "response": "required string, 1-2000 characters",
+      "source_url": "optional HTTPS URL without credentials, query, or fragment"
+    },
+    "max_request_bytes": 8192,
+    "human_review_required": true,
+    "automatic_publication": false,
+    "phase1_network_scope": "loopback clients only",
+    "production_intake": "disabled in Phase 1"
+  }
 }

@@ -2,8 +2,10 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 from datetime import datetime, timezone
-import json, re, os
-from content import render_page
+import ipaddress, json, re, os
+from content import FileStore, render_page, validate
+from response import ResponseValidationError, build_draft_response
+from response_store import FileResponseStore, LocalResponseRateLimiter
 
 ROOT = Path(__file__).resolve().parent
 LOG = ROOT / "data" / "requests.jsonl"
@@ -12,6 +14,22 @@ AGENT_HINTS = (
     "claude", "anthropic", "gemini", "google-extended", "perplexity",
     "bytespider", "ccbot"
 )
+MAX_RESPONSE_BODY = 8 * 1024
+MAX_RESPONSE_DRAFTS = 1000
+RESPONSE_RATE_LIMITER = LocalResponseRateLimiter()
+
+
+class DuplicateJSONKey(ValueError):
+    pass
+
+
+def strict_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateJSONKey()
+        result[key] = value
+    return result
 
 def classify_agent(ua: str) -> bool:
     u = (ua or "").lower()
@@ -59,6 +77,95 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         self.serve(head=False)
 
+    def do_POST(self):
+        self.receive_response()
+
+    def do_OPTIONS(self):
+        self.send_json({'error': 'method_not_allowed'}, status=405)
+
+    def receive_response(self):
+        self.close_connection = True
+        # Production remains disabled unless a local operator explicitly opts in.
+        if os.environ.get('MOONBACK_ENABLE_RESPONSE_POST') != '1':
+            self.send_json({'error': 'not_found'}, status=404)
+            return
+        try:
+            if not ipaddress.ip_address(self.client_address[0]).is_loopback:
+                self.send_json({'error': 'not_found'}, status=404)
+                return
+        except (ValueError, TypeError, IndexError):
+            self.send_json({'error': 'not_found'}, status=404)
+            return
+        parsed = urlparse(self.path)
+        match = re.fullmatch(
+            r'/api/journal/([a-z0-9][a-z0-9_-]{0,79})/responses',
+            parsed.path,
+        )
+        if match is None or parsed.query or parsed.fragment:
+            self.send_json({'error': 'not_found'}, status=404)
+            return
+        journal_id = match.group(1)
+        journal_store = FileStore()
+        journal_path = journal_store.directory('published', 'journal') / (journal_id + '.json')
+        try:
+            journal_item = validate(
+                'journal', json.loads(journal_path.read_text(encoding='utf-8')))
+        except FileNotFoundError:
+            self.send_json({'error': 'journal_not_found'}, status=404)
+            return
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            self.send_json({'error': 'service_unavailable'}, status=503)
+            return
+        if journal_item['id'] != journal_id:
+            self.send_json({'error': 'journal_not_found'}, status=404)
+            return
+        if self.headers.get_content_type() != 'application/json':
+            self.send_json({'error': 'unsupported_media_type'}, status=415)
+            return
+        if self.headers.get('Transfer-Encoding') is not None:
+            self.send_json({'error': 'invalid_body_framing'}, status=400)
+            return
+        if self.headers.get('Content-Encoding') not in (None, 'identity'):
+            self.send_json({'error': 'unsupported_content_encoding'}, status=415)
+            return
+        lengths = self.headers.get_all('Content-Length', failobj=[])
+        if len(lengths) != 1 or re.fullmatch(r'[0-9]+', lengths[0]) is None:
+            self.send_json({'error': 'content_length_required'}, status=411)
+            return
+        length = int(lengths[0])
+        if length > MAX_RESPONSE_BODY:
+            self.send_json({'error': 'payload_too_large'}, status=413)
+            return
+        if length == 0:
+            self.send_json({'error': 'invalid_json'}, status=400)
+            return
+        body = self.rfile.read(length)
+        try:
+            submitted = json.loads(
+                body.decode('utf-8'), object_pairs_hook=strict_json_object)
+            draft = build_draft_response(submitted, journal_id)
+        except (UnicodeError, json.JSONDecodeError, DuplicateJSONKey,
+                ResponseValidationError):
+            self.send_json({'error': 'invalid_response'}, status=400)
+            return
+        source = self.client_address[0]
+        if not RESPONSE_RATE_LIMITER.allow(source, journal_id):
+            self.send_json({'error': 'rate_limited'}, status=429)
+            return
+        response_store = FileResponseStore()
+        try:
+            if len(response_store.read_drafts()) >= MAX_RESPONSE_DRAFTS:
+                self.send_json({'error': 'rate_limited'}, status=429)
+                return
+            response_store.save_draft(draft)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            self.send_json({'error': 'service_unavailable'}, status=503)
+            return
+        self.send_json({
+            'status': 'accepted_for_review',
+            'receipt_id': draft['id'],
+        }, status=202)
+
     def serve(self, head=False):
         path = urlparse(self.path).path
         if path == "/stats":
@@ -103,6 +210,16 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         if not head:
             self.wfile.write(payload)
+
+    def send_json(self, item, *, status):
+        payload = json.dumps(item, separators=(',', ':')).encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(payload)))
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.end_headers()
+        self.wfile.write(payload)
 
 if __name__ == "__main__":
     os.chdir(ROOT)

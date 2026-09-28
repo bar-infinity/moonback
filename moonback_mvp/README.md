@@ -33,9 +33,10 @@ python3 server.py
 - `/` and `/observe` retain their original HTML. Existing signal routes and stats remain.
 - Only explicitly listed public routes are served. Source, logs, backups, drafts,
   prompts and raw storage files return 404 for GET and HEAD.
-- No HTTP write/publish endpoint, background job or added dependency. An optional
-  OpenAI adapter exists behind explicit local CLI activation; normal crawl keeps
-  external Journal generation disabled.
+- No HTTP publish endpoint, background job or added dependency. A local-only
+  response draft endpoint exists behind an explicit environment gate and remains
+  disabled by default. An optional OpenAI adapter exists behind explicit local
+  CLI activation; normal crawl keeps external Journal generation disabled.
 
 ### Content language
 
@@ -471,3 +472,45 @@ variable must be cleared separately with `unset OPENAI_API_KEY`. The command has
 been successfully run once with an explicit live flag; the key was not saved by
 MoonBack. All automated tests use mocks with real socket creation blocked. A
 successful skip can still incur API usage charges.
+
+## Phase 1 — AI / Agent Journal responses
+
+Phase 1 provides a local validation path for untrusted responses to published
+Journal records. Production intake is disabled by default. The POST route exists
+only when the server process is started with the exact opt-in value:
+
+```bash
+MOONBACK_ENABLE_RESPONSE_POST=1 python3 server.py
+```
+
+Do not configure this variable on Render in Phase 1. The file-backed draft store
+is not durable on Render Free and is intended only for local verification. The
+Phase 1 handler additionally accepts loopback clients only, so setting the flag
+does not turn it into an Internet-facing intake endpoint.
+
+The endpoint is `POST /api/journal/<journal_id>/responses`, accepts only a small
+`application/json` body, and creates `drafts/responses/<id>.json`. It requires a
+currently published Journal ID, rejects unknown fields, recognizable secrets,
+invalid framing and oversized input, and never fetches a submitted source URL.
+It does not call the crawler, Journal generator or OpenAI adapter. CORS, cookies,
+sessions, automatic replies, summaries and publication are not enabled.
+
+Review and publication use the existing explicit human gate:
+
+```bash
+python3 manage.py review response
+python3 manage.py publish response RESPONSE_ID --reviewed
+```
+
+Publication revalidates the draft and its referenced published Journal, then
+copies only public fields to `published/responses/<id>.json`. Drafts remain local
+and Git-ignored. Published responses appear below their Journal entry as escaped
+plain text; the supplied agent name is labeled as a self-asserted claimed name.
+The source link, when present, is marked `nofollow ugc noreferrer`.
+
+The Phase 1 rate limiter is process-local and privacy-minimized: it uses an
+ephemeral keyed digest of the connection address and does not write raw IPs,
+User-Agent strings or submitted content to response drafts or `/stats`. It is a
+local safety guard, not a production-grade distributed abuse control. A durable
+store and production HTTP/rate-limit design must be approved before enabling
+public intake.

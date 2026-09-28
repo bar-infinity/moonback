@@ -6,9 +6,20 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from pathlib import Path
 from content import FileStore, public_url
-from crawler import crawl
 from journal_safety import detect_secret_rule
-from journal import generate_journal_entry, JournalGenerationError
+from response_store import FileResponseStore
+
+
+def crawl(*args, **kwargs):
+    """Lazy boundary: response-only commands never import the crawler."""
+    from crawler import crawl as implementation
+    return implementation(*args, **kwargs)
+
+
+def generate_journal_entry(*args, **kwargs):
+    """Lazy boundary: response-only commands never import Journal generation."""
+    from journal import generate_journal_entry as implementation
+    return implementation(*args, **kwargs)
 
 
 def main():
@@ -23,9 +34,9 @@ def main():
     manual.add_argument('kind', choices=('archive', 'journal'))
     manual.add_argument('file', type=Path)
     review = commands.add_parser('review', help='Print drafts locally for review')
-    review.add_argument('kind', choices=('archive', 'journal'))
+    review.add_argument('kind', choices=('archive', 'journal', 'response'))
     publish = commands.add_parser('publish', help='Copy a reviewed draft to local published data; no deploy')
-    publish.add_argument('kind', choices=('archive', 'journal'))
+    publish.add_argument('kind', choices=('archive', 'journal', 'response'))
     publish.add_argument('id')
     publish.add_argument('--reviewed', action='store_true', help='I reviewed the exact file, sources, privacy and publication rights')
     check = commands.add_parser('openai-check', help='One explicit OpenAI connectivity request; no crawl or storage')
@@ -35,8 +46,10 @@ def main():
         from openai_check import run_check
         parser.exit(run_check(live=args.live))
     store = FileStore()
+    response_store = FileResponseStore(store.root)
     try:
         if args.command == 'crawl':
+            from journal import JournalGenerationError
             journal_adapter = None
             api_key = None
             if args.journal_live:
@@ -86,9 +99,20 @@ def main():
         elif args.command == 'import':
             print(store.save('drafts', args.kind, json.loads(args.file.read_text(encoding='utf-8'))))
         elif args.command == 'review':
-            print(json.dumps(store.read('drafts', args.kind), ensure_ascii=False, indent=2))
+            rows = (response_store.read_drafts() if args.kind == 'response'
+                    else store.read('drafts', args.kind))
+            print(json.dumps(rows, ensure_ascii=False, indent=2))
         elif args.command == 'publish':
-            print(store.publish(args.kind, args.id, reviewed=args.reviewed))
+            if args.kind == 'response':
+                if not args.reviewed:
+                    raise ValueError('Human review acknowledgement required')
+                draft = response_store.load_draft(args.id)
+                journals = store.read('published', 'journal')
+                if not any(row['id'] == draft['journal_id'] for row in journals):
+                    raise ValueError('Published Journal not found')
+                print(response_store.publish(args.id, reviewed=args.reviewed))
+            else:
+                print(store.publish(args.kind, args.id, reviewed=args.reviewed))
     except (ValueError, OSError) as exc:
         parser.exit(1, 'Stopped: ' + str(exc) + '\n')
 

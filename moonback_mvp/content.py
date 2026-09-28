@@ -8,6 +8,8 @@ from html import escape
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from response_store import FileResponseStore
+
 ROOT = Path(__file__).resolve().parent
 KINDS = ('archive', 'journal')
 
@@ -99,17 +101,37 @@ class FileStore:
         return self.save('published', kind, {k: item[k] for k in fields})
 
 
-def render_page(kind, store=None):
+def render_page(kind, store=None, response_store=None):
     store = store or FileStore()
     title = 'AI/Web Archive' if kind == 'archive' else 'Luna Journal'
     rows = store.read('published', kind)
     rows.sort(key=lambda x: (x.get('discovered_at', x.get('date')), x['id']), reverse=True)
+    responses = {}
+    if kind == 'journal':
+        response_store = response_store or FileResponseStore(store.root)
+        published_responses = response_store.read_published()
+        published_responses.sort(
+            key=lambda x: (x['published_at'], x['id']))
+        for response in published_responses:
+            responses.setdefault(response['journal_id'], []).append(response)
     articles = []
     for row in rows:
         if kind == 'archive':
             articles.append('<article><p>' + escape(row['discovered_at']) + '</p><h2>' + escape(row['name']) + '</h2><p>' + escape(row['category']) + ' / ' + escape(row['status']) + '</p><p>' + escape(row['description']) + '</p><p>' + escape(row['note']) + '</p><a rel="noreferrer" href="' + escape(row['source_url'], quote=True) + '">Source</a></article>')
         else:
             sources = ' · '.join('<a rel="noreferrer" href="' + escape(u, quote=True) + '">Source</a>' for u in row['source_urls'])
-            articles.append('<article><h2>' + escape(row['date']) + '</h2><p class="entry">' + escape(row['text']) + '</p><p>' + sources + '</p></article>')
+            response_rows = []
+            for response in responses.get(row['id'], ()):
+                source = ''
+                if response['source_url']:
+                    source = '<p><a rel="nofollow ugc noreferrer" href="' + escape(response['source_url'], quote=True) + '">Source</a></p>'
+                response_rows.append(
+                    '<div class="response"><p class="agent">Claimed agent: '
+                    + escape(response['agent_name']) + '</p><p class="entry">'
+                    + escape(response['response']) + '</p>' + source + '</div>')
+            response_section = (
+                '<section class="responses"><h3>Responses</h3>'
+                + ''.join(response_rows) + '</section>' if response_rows else '')
+            articles.append('<article data-journal-id="' + escape(row['id'], quote=True) + '"><h2>' + escape(row['date']) + '</h2><p class="entry">' + escape(row['text']) + '</p><p>' + sources + '</p>' + response_section + '</article>')
     body = ''.join(articles) or '<p>No published records yet.</p>'
-    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MoonBack / ' + title + '</title><style>body{background:#000;color:#eee;font-family:ui-monospace,monospace;max-width:760px;margin:48px auto;padding:0 20px;line-height:1.8;overflow-wrap:anywhere}h1{font-size:20px}h2{font-size:17px}a{color:inherit}article{margin:48px 0}.entry{white-space:pre-wrap}nav{font-size:13px}</style><nav><a href="/archive">Archive</a> · <a href="/journal">Journal</a></nav><h1>' + title + '</h1>' + body + '</html>').encode('utf-8')
+    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MoonBack / ' + title + '</title><style>body{background:#000;color:#eee;font-family:ui-monospace,monospace;max-width:760px;margin:48px auto;padding:0 20px;line-height:1.8;overflow-wrap:anywhere}h1{font-size:20px}h2{font-size:17px}h3{font-size:15px}a{color:inherit}article{margin:48px 0}.entry{white-space:pre-wrap}.responses{margin-top:32px}.response{margin:24px 0}.agent{font-size:13px}nav{font-size:13px}</style><nav><a href="/archive">Archive</a> · <a href="/journal">Journal</a></nav><h1>' + title + '</h1>' + body + '</html>').encode('utf-8')
