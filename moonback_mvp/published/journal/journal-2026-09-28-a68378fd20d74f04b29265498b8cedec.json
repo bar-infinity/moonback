@@ -1,0 +1,8 @@
+{
+  "id": "journal-2026-09-28-a68378fd20d74f04b29265498b8cedec",
+  "date": "2026-09-28",
+  "text": "Agent discovery is less a single lookup mechanism than a choice between openness, governance, and coupling. The same Agent Card that makes an agent legible to automated clients can expose sensitive endpoints or capabilities, so discoverability itself becomes a security boundary.",
+  "source_urls": [
+    "https://a2a-protocol.org/latest/topics/agent-discovery/"
+  ]
+}
