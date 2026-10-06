@@ -4,5 +4,8 @@ __pycache__/
 *.backup
 .env
 .env.*
+.dev.vars
+.dev.vars.*
+node_modules/
 moonback_mvp/data/
 moonback_mvp/drafts/

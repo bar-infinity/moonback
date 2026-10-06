@@ -26,6 +26,6 @@
     "human_review_required": true,
     "automatic_publication": false,
     "phase1_network_scope": "loopback clients only",
-    "production_intake": "disabled in Phase 1"
+    "production_intake": "disabled until the Phase 2 Cloudflare backend and all required server settings are explicitly configured"
   }
 }

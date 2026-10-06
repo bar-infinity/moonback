@@ -5,7 +5,10 @@ from datetime import datetime, timezone
 import ipaddress, json, re, os
 from content import FileStore, render_page, validate
 from response import ResponseValidationError, build_draft_response
-from response_store import FileResponseStore, LocalResponseRateLimiter
+from response_store import (
+    CloudflareResponseStore, CloudflareStoreError, FileResponseStore,
+    LocalResponseRateLimiter,
+)
 
 ROOT = Path(__file__).resolve().parent
 LOG = ROOT / "data" / "requests.jsonl"
@@ -30,6 +33,30 @@ def strict_json_object(pairs):
             raise DuplicateJSONKey()
         result[key] = value
     return result
+
+
+def response_store_for_request(client_address):
+    """Select one explicit intake backend; never fall back between stores."""
+    backend = os.environ.get('MOONBACK_RESPONSE_BACKEND')
+    if backend == 'cloudflare':
+        worker_url = os.environ.get('MOONBACK_RESPONSE_WORKER_URL')
+        secret = os.environ.get('MOONBACK_RESPONSE_WORKER_SECRET')
+        if not worker_url or not secret:
+            return None, None
+        try:
+            return 'cloudflare', CloudflareResponseStore(worker_url, secret)
+        except ValueError:
+            return None, None
+    if backend not in (None, ''):
+        return None, None
+    if os.environ.get('MOONBACK_ENABLE_RESPONSE_POST') != '1':
+        return None, None
+    try:
+        if not ipaddress.ip_address(client_address).is_loopback:
+            return None, None
+    except (ValueError, TypeError):
+        return None, None
+    return 'file', FileResponseStore()
 
 def classify_agent(ua: str) -> bool:
     u = (ua or "").lower()
@@ -85,15 +112,12 @@ class Handler(SimpleHTTPRequestHandler):
 
     def receive_response(self):
         self.close_connection = True
-        # Production remains disabled unless a local operator explicitly opts in.
-        if os.environ.get('MOONBACK_ENABLE_RESPONSE_POST') != '1':
-            self.send_json({'error': 'not_found'}, status=404)
-            return
         try:
-            if not ipaddress.ip_address(self.client_address[0]).is_loopback:
-                self.send_json({'error': 'not_found'}, status=404)
-                return
-        except (ValueError, TypeError, IndexError):
+            backend, response_store = response_store_for_request(
+                self.client_address[0])
+        except (IndexError, TypeError):
+            backend, response_store = None, None
+        if response_store is None:
             self.send_json({'error': 'not_found'}, status=404)
             return
         parsed = urlparse(self.path)
@@ -152,12 +176,17 @@ class Handler(SimpleHTTPRequestHandler):
         if not RESPONSE_RATE_LIMITER.allow(source, journal_id):
             self.send_json({'error': 'rate_limited'}, status=429)
             return
-        response_store = FileResponseStore()
         try:
-            if len(response_store.read_drafts()) >= MAX_RESPONSE_DRAFTS:
+            if (backend == 'file'
+                    and len(response_store.read_drafts()) >= MAX_RESPONSE_DRAFTS):
                 self.send_json({'error': 'rate_limited'}, status=429)
                 return
             response_store.save_draft(draft)
+        except CloudflareStoreError as exc:
+            status = 429 if exc.category == 'rate_limited' else (
+                502 if exc.category == 'bad_gateway' else 503)
+            self.send_json({'error': exc.category}, status=status)
+            return
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             self.send_json({'error': 'service_unavailable'}, status=503)
             return

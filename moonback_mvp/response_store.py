@@ -2,13 +2,16 @@
 from abc import ABC, abstractmethod
 import hashlib
 import hmac
+import http.client
 import json
 import os
 from pathlib import Path
 import secrets
+import ssl
 import threading
 import time
 import warnings
+from urllib.parse import urlsplit
 
 from response import (
     public_from_draft, validate_draft_response, validate_published_response,
@@ -19,10 +22,13 @@ from response import (
 ROOT = Path(__file__).resolve().parent
 
 
-class ResponseDraftStore(ABC):
+class ResponseIntakeStore(ABC):
     @abstractmethod
     def save_draft(self, item):
         raise NotImplementedError
+
+
+class ResponseDraftStore(ResponseIntakeStore):
 
     @abstractmethod
     def read_drafts(self):
@@ -98,6 +104,101 @@ class FileResponseStore(ResponseDraftStore):
             'published',
             public_from_draft(draft, publication_date=publication_date),
         )
+
+
+class CloudflareStoreError(RuntimeError):
+    """A fixed safe category; never includes provider data or credentials."""
+
+    def __init__(self, category):
+        super().__init__(category)
+        self.category = category
+
+
+class CloudflareResponseStore(ResponseIntakeStore):
+    """Send validated drafts once to the private Worker intake endpoint."""
+
+    MAX_PROVIDER_RESPONSE = 4096
+    # Cloudflare Browser Integrity Check can reject generic Python client
+    # signatures.  Keep this browser-compatible MoonBack service header fixed;
+    # it must never contain request, credential, or user-derived data.
+    USER_AGENT = (
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/140.0.0.0 Safari/537.36'
+    )
+
+    def __init__(self, worker_url, secret, *, timeout=8, transport=None):
+        self.worker_url = self._validate_worker_url(worker_url)
+        if type(secret) is not str or not secret:
+            raise ValueError('Cloudflare response intake is not configured')
+        if type(timeout) not in (int, float) or timeout <= 0:
+            raise ValueError('Invalid Cloudflare response timeout')
+        self._secret = secret
+        self.timeout = timeout
+        self._transport = transport or self._https_post
+
+    @staticmethod
+    def _validate_worker_url(value):
+        if type(value) is not str or not value:
+            raise ValueError('Cloudflare response intake is not configured')
+        try:
+            parsed = urlsplit(value)
+            port = parsed.port
+        except ValueError:
+            raise ValueError('Invalid Cloudflare Worker URL') from None
+        if (parsed.scheme != 'https' or not parsed.hostname
+                or parsed.username or parsed.password or parsed.query
+                or parsed.fragment or port not in (None, 443)
+                or parsed.path != '/v1/responses'):
+            raise ValueError('Invalid Cloudflare Worker URL')
+        return value
+
+    def _https_post(self, payload, headers):
+        parsed = urlsplit(self.worker_url)
+        connection = http.client.HTTPSConnection(
+            parsed.hostname, parsed.port or 443, timeout=self.timeout,
+            context=ssl.create_default_context(),
+        )
+        try:
+            connection.request('POST', parsed.path, body=payload, headers=headers)
+            response = connection.getresponse()
+            body = response.read(self.MAX_PROVIDER_RESPONSE + 1)
+            return response.status, body
+        finally:
+            connection.close()
+
+    def save_draft(self, item):
+        draft = validate_draft_response(item)
+        payload = json.dumps(
+            draft, ensure_ascii=False, separators=(',', ':'),
+        ).encode('utf-8')
+        headers = {
+            'Authorization': 'Bearer ' + self._secret,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'User-Agent': self.USER_AGENT,
+        }
+        try:
+            status, body = self._transport(payload, headers)
+        except (TimeoutError, ConnectionError, OSError, http.client.HTTPException):
+            raise CloudflareStoreError('unavailable') from None
+
+        if status == 429:
+            raise CloudflareStoreError('rate_limited')
+        if status < 200 or status >= 300:
+            raise CloudflareStoreError('unavailable')
+        if type(body) is not bytes or len(body) > self.MAX_PROVIDER_RESPONSE:
+            raise CloudflareStoreError('bad_gateway')
+        try:
+            result = json.loads(body.decode('utf-8'))
+        except (UnicodeError, json.JSONDecodeError):
+            raise CloudflareStoreError('bad_gateway') from None
+        if (type(result) is not dict
+                or set(result) != {'status', 'receipt_id'}
+                or result.get('status') != 'stored'
+                or result.get('receipt_id') != draft['id']):
+            raise CloudflareStoreError('bad_gateway')
+        return draft['id']
 
 
 class LocalResponseRateLimiter:

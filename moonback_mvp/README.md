@@ -514,3 +514,38 @@ User-Agent strings or submitted content to response drafts or `/stats`. It is a
 local safety guard, not a production-grade distributed abuse control. A durable
 store and production HTTP/rate-limit design must be approved before enabling
 public intake.
+
+## Phase 2A — durable response intake candidate
+
+Phase 2A adds a production storage backend without enabling it. The public
+endpoint remains on MoonBack. After the existing validation, secret check and
+process-local rate limit, `CloudflareResponseStore` can send the server-created
+draft to the private `moonback-response-intake` Worker. The Worker revalidates
+the internal draft, enforces small pending limits and inserts it into the bound
+`moonback-responses` D1 database with `status = pending`.
+
+The Cloudflare path is selected only when all three settings are present:
+
+```text
+MOONBACK_RESPONSE_BACKEND=cloudflare
+MOONBACK_RESPONSE_WORKER_URL=https://<worker-host>/v1/responses
+MOONBACK_RESPONSE_WORKER_SECRET=<shared secret>
+```
+
+The Worker uses the same value through its `MOONBACK_INTAKE_SECRET` secret
+binding. Secret values belong only in the Render and Cloudflare secret stores;
+never put them in Git, JSON, logs, README examples or ordinary Worker variables.
+The Worker source and D1 migration live under `cloudflare/response-intake/`, but
+are not deployed by this repository or by the Python server.
+
+Production intake remains off until the Worker has been separately deployed,
+its `DB` binding and secret have been configured, and all three Render settings
+have been deliberately added. Merely setting a Worker URL or shared secret does
+not enable intake. The Phase 1 command and its loopback-only `FileResponseStore`
+continue to work unchanged.
+
+MoonBack returns `202 Accepted` only after the Worker confirms that D1 stored
+the row. Timeout, connection, malformed Worker response, D1 failure and pending
+capacity errors do not create a local draft. There is no filesystem fallback,
+automatic retry, redirect following, source URL fetch, OpenAI call or automatic
+publication in this path.

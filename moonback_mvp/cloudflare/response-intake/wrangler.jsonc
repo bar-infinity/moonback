@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "moonback-response-intake",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-30",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "moonback-responses",
+      "database_id": "4e5d4661-f02d-4dca-9913-0ea69056eaf6",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "secrets": {
+    "required": ["MOONBACK_INTAKE_SECRET"]
+  }
+}
