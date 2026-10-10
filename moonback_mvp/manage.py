@@ -35,6 +35,10 @@ def main():
     manual.add_argument('file', type=Path)
     review = commands.add_parser('review', help='Print drafts locally for review')
     review.add_argument('kind', choices=('archive', 'journal', 'response'))
+    review.add_argument('id', nargs='?')
+    review.add_argument('--remote', action='store_true', help='Explicit read-only pending response access')
+    review.add_argument('--limit', type=int, default=None)
+    review.add_argument('--cursor')
     publish = commands.add_parser('publish', help='Copy a reviewed draft to local published data; no deploy')
     publish.add_argument('kind', choices=('archive', 'journal', 'response'))
     publish.add_argument('id')
@@ -42,6 +46,18 @@ def main():
     check = commands.add_parser('openai-check', help='One explicit OpenAI connectivity request; no crawl or storage')
     check.add_argument('--live', action='store_true', help='Explicitly allow one potentially billable API request')
     args = parser.parse_args()
+    if args.command == 'review':
+        if args.remote:
+            if args.kind != 'response' or (args.id and (args.limit is not None or args.cursor is not None)):
+                parser.error('Remote review requires response; pagination is list-only')
+            from response_admin import run_review, ResponseAdminError
+            try:
+                run_review(ident=args.id, limit=20 if args.limit is None else args.limit, cursor=args.cursor)
+            except ResponseAdminError as exc:
+                parser.exit(1, 'Remote review stopped: ' + str(exc) + '\n')
+            return
+        if args.id is not None or args.limit is not None or args.cursor is not None:
+            parser.error('ID and pagination require --remote')
     if args.command == 'openai-check':
         from openai_check import run_check
         parser.exit(run_check(live=args.live))

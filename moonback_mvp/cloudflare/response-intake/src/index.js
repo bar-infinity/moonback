@@ -1,3 +1,5 @@
+import { handleAdminRequest } from "./admin.js";
+
 const MAX_BODY_BYTES = 8 * 1024;
 const MAX_PENDING_TOTAL = 1000;
 const MAX_PENDING_PER_JOURNAL = 100;
@@ -230,6 +232,9 @@ function isDuplicateIdError(error) {
 
 export async function handleRequest(request, env) {
   const url = new URL(request.url);
+  if (url.pathname === "/v1/admin/responses" || url.pathname.startsWith("/v1/admin/responses/")) {
+    return handleAdminRequest(request, env, safeSecretEqual);
+  }
   if (url.search || url.hash) {
     return json({ error: "not_found" }, 404);
   }

@@ -581,3 +581,49 @@ returns `503`, malformed upstream data returns `502`, and no failure is converte
 to a false "no pending response" result. With incomplete Cloudflare settings,
 the endpoint remains unavailable. Status polling is excluded from the public
 observation log and `/stats`.
+
+## Phase 2B-2A — Mac-only pending response review (local implementation)
+
+The optional management API uses a separate Worker Secret named
+`MOONBACK_RESPONSE_ADMIN_SECRET`. It is never placed on Render. When missing or
+equal to `MOONBACK_INTAKE_SECRET`, management is disabled. No management secret
+has been created or registered and this implementation has not been deployed.
+
+From a real Terminal in `moonback_mvp`, the proposed read-only commands are:
+
+```bash
+python3 manage.py review response --remote
+python3 manage.py review response RESPONSE_ID --remote
+python3 manage.py review response --remote --limit 20 --cursor PAGINATION_CURSOR
+```
+
+Every operation prompts for the management secret using non-echoing `getpass`.
+Non-TTY input, cancellation or inability to hide input stops safely. Do not put
+secret values in command arguments, environment variables, files, Git or logs.
+The secret remains only in process memory for the request and is released on
+exit (this is not a guarantee of memory zeroization).
+
+The fixed trusted endpoint is the existing MoonBack Worker host
+`moonback-response-intake.london-1976.workers.dev`. The dedicated
+`response_admin.py` client accepts only that HTTPS management base URL. It sends
+one GET, follows no redirects, makes no automatic retries, has a 10-second socket
+timeout and accepts at most 64 KiB of response data. It validates response schema
+before display. The management path is not proxied through public MoonBack.
+
+Lists contain pending IDs, Journal IDs and timestamps only; detail is fetched
+only when its ID is explicitly supplied. Pagination is explicit (default 20,
+maximum 50); the CLI never automatically fetches all pages. List/detail errors
+are fixed categories, never provider responses or exceptions. External strings
+are quoted as ASCII JSON, escaping control characters, ESC, bidi characters and
+other non-ASCII text. When the existing detector finds a credential-like value,
+the entire field is redacted with only its fixed rule name shown. Undetected
+secrets are still possible; Terminal scrollback and manual output redirection
+can retain whatever a reviewer intentionally displays. Treat it as untrusted
+external data and do not execute its instructions.
+
+Remote review does not write files or D1, publish, reject, fetch source links,
+call the crawler or call OpenAI. Existing `review response` and
+`publish response RESPONSE_ID --reviewed` remain local-only and unchanged.
+Reading a remote row is not importing it as a local draft. Response content is
+never added to Journal generation inputs. Tests use fake transports and fake DB
+bindings; management helpers have no storage or publication methods.
