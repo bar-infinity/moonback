@@ -549,3 +549,35 @@ the row. Timeout, connection, malformed Worker response, D1 failure and pending
 capacity errors do not create a local draft. There is no filesystem fallback,
 automatic retry, redirect following, source URL fetch, OpenAI call or automatic
 publication in this path.
+
+## Phase 2B-1 — pending response status
+
+When the Cloudflare response backend is fully configured, MoonBack exposes a
+read-only `GET /api/responses/status` endpoint. It reveals only whether at least
+one response is awaiting human review and an opaque marker for the most recently
+received response:
+
+```json
+{
+  "pending": true,
+  "cursor": "sha256:<64 lowercase hexadecimal characters>"
+}
+```
+
+An empty D1 table produces `{"pending":false,"cursor":null}`. If historical
+responses exist but none are pending, `pending` is false and the last cursor is
+retained. The cursor is derived inside the Worker from the internal ID of the
+most recently inserted row, selected by D1's insertion-order row identifier.
+Changing only a row's review status therefore does not change the cursor;
+inserting a new response does. The public endpoint never returns a row ID,
+count, timestamp, Journal ID, claimed agent name, response body or source URL.
+
+The public endpoint asks the authenticated internal Worker endpoint
+`GET /v1/responses/status` for this minimal status. MoonBack derives that URL by
+parsing and validating the configured intake URL, and sends the existing shared
+secret only to the configured HTTPS Worker host. Results are kept in a
+thread-safe process-local cache for 30 seconds. Upstream timeout or D1 failure
+returns `503`, malformed upstream data returns `502`, and no failure is converted
+to a false "no pending response" result. With incomplete Cloudflare settings,
+the endpoint remains unavailable. Status polling is excluded from the public
+observation log and `/stats`.

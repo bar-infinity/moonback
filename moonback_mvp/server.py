@@ -2,7 +2,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 from datetime import datetime, timezone
-import ipaddress, json, re, os
+import ipaddress, json, re, os, threading, time
 from content import FileStore, render_page, validate
 from response import ResponseValidationError, build_draft_response
 from response_store import (
@@ -19,6 +19,7 @@ AGENT_HINTS = (
 )
 MAX_RESPONSE_BODY = 8 * 1024
 MAX_RESPONSE_DRAFTS = 1000
+RESPONSE_STATUS_CACHE_SECONDS = 30
 RESPONSE_RATE_LIMITER = LocalResponseRateLimiter()
 
 
@@ -35,18 +36,48 @@ def strict_json_object(pairs):
     return result
 
 
+class ResponseStatusCache:
+    """Short process-local cache with no stale-on-error fallback."""
+
+    def __init__(self, ttl=RESPONSE_STATUS_CACHE_SECONDS):
+        self.ttl = ttl
+        self._lock = threading.Lock()
+        self._value = None
+        self._expires_at = 0.0
+
+    def get(self, loader):
+        with self._lock:
+            now = time.monotonic()
+            if self._value is not None and now < self._expires_at:
+                return dict(self._value)
+            value = loader()
+            self._value = dict(value)
+            self._expires_at = time.monotonic() + self.ttl
+            return dict(self._value)
+
+
+RESPONSE_STATUS_CACHE = ResponseStatusCache()
+
+
+def configured_cloudflare_response_store():
+    if os.environ.get('MOONBACK_RESPONSE_BACKEND') != 'cloudflare':
+        return None
+    worker_url = os.environ.get('MOONBACK_RESPONSE_WORKER_URL')
+    secret = os.environ.get('MOONBACK_RESPONSE_WORKER_SECRET')
+    if not worker_url or not secret:
+        return None
+    try:
+        return CloudflareResponseStore(worker_url, secret)
+    except ValueError:
+        return None
+
+
 def response_store_for_request(client_address):
     """Select one explicit intake backend; never fall back between stores."""
     backend = os.environ.get('MOONBACK_RESPONSE_BACKEND')
     if backend == 'cloudflare':
-        worker_url = os.environ.get('MOONBACK_RESPONSE_WORKER_URL')
-        secret = os.environ.get('MOONBACK_RESPONSE_WORKER_SECRET')
-        if not worker_url or not secret:
-            return None, None
-        try:
-            return 'cloudflare', CloudflareResponseStore(worker_url, secret)
-        except ValueError:
-            return None, None
+        store = configured_cloudflare_response_store()
+        return ('cloudflare', store) if store is not None else (None, None)
     if backend not in (None, ''):
         return None, None
     if os.environ.get('MOONBACK_ENABLE_RESPONSE_POST') != '1':
@@ -195,8 +226,31 @@ class Handler(SimpleHTTPRequestHandler):
             'receipt_id': draft['id'],
         }, status=202)
 
+    def serve_response_status(self, *, head=False):
+        store = configured_cloudflare_response_store()
+        if store is None:
+            self.send_json({'error': 'not_found'}, status=404, head=head)
+            return
+        try:
+            payload = RESPONSE_STATUS_CACHE.get(store.get_status)
+        except CloudflareStoreError as exc:
+            status = 502 if exc.category == 'bad_gateway' else 503
+            self.send_json({'error': exc.category}, status=status, head=head)
+            return
+        self.send_json(
+            payload, status=200, head=head,
+            cache_control='public, max-age=30, must-revalidate',
+        )
+
     def serve(self, head=False):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == '/api/responses/status':
+            if parsed.query or parsed.fragment:
+                self.send_json({'error': 'not_found'}, status=404, head=head)
+                return
+            self.serve_response_status(head=head)
+            return
         if path == "/stats":
             payload = json.dumps(read_stats()).encode("utf-8")
             self.send_payload(payload, "application/json; charset=utf-8", head)
@@ -240,15 +294,16 @@ class Handler(SimpleHTTPRequestHandler):
         if not head:
             self.wfile.write(payload)
 
-    def send_json(self, item, *, status):
+    def send_json(self, item, *, status, head=False, cache_control='no-store'):
         payload = json.dumps(item, separators=(',', ':')).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(payload)))
-        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Cache-Control', cache_control)
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.end_headers()
-        self.wfile.write(payload)
+        if not head:
+            self.wfile.write(payload)
 
 if __name__ == "__main__":
     os.chdir(ROOT)

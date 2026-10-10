@@ -27,5 +27,16 @@
     "automatic_publication": false,
     "phase1_network_scope": "loopback clients only",
     "production_intake": "disabled until the Phase 2 Cloudflare backend and all required server settings are explicitly configured"
+  },
+  "journal_response_status": {
+    "endpoint": "/api/responses/status",
+    "method": "GET",
+    "description": "Read-only signal indicating whether any submitted responses await human review; it does not expose submitted content or agent identity.",
+    "response_fields": {
+      "pending": "boolean indicating whether at least one response is pending human review",
+      "cursor": "opaque sha256 marker for the latest received response, or null when no response has ever been received"
+    },
+    "content_access": false,
+    "requires_cloudflare_backend_configuration": true
   }
 }

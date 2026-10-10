@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import { handleRequest, safeSecretEqual } from "../src/index.js";
@@ -14,16 +15,22 @@ const valid = {
 };
 
 class FakeDB {
-  constructor({ total = 0, journal = 0, duplicate = false, failure = false } = {}) {
+  constructor({ total = 0, journal = 0, duplicate = false, failure = false,
+    pending = 0, latestId = null, statusFailure = false } = {}) {
     this.total = total;
     this.journal = journal;
     this.duplicate = duplicate;
     this.failure = failure;
+    this.pending = pending;
+    this.latestId = latestId;
+    this.statusFailure = statusFailure;
     this.insert = null;
+    this.queries = [];
   }
 
   prepare(sql) {
     const database = this;
+    database.queries.push(sql);
     let bindings = [];
     return {
       bind(...values) {
@@ -31,6 +38,13 @@ class FakeDB {
         return this;
       },
       async first() {
+        if (database.statusFailure) throw new Error("private D1 details");
+        if (sql.includes("SELECT EXISTS")) {
+          return { pending: database.pending, latest_id: database.latestId };
+        }
+        if (sql.includes("ORDER BY rowid")) {
+          return database.latestId === null ? null : { id: database.latestId };
+        }
         return { count: sql.includes("journal_id") ? database.journal : database.total };
       },
       async run() {
@@ -65,6 +79,22 @@ async function run(body, changes = {}, database = new FakeDB()) {
     MOONBACK_INTAKE_SECRET: SECRET,
   });
   return { response, payload: await response.json(), database };
+}
+
+async function runStatus(database = new FakeDB(), authorization = `Bearer ${SECRET}`) {
+  const headers = new Headers();
+  if (authorization !== null) headers.set("Authorization", authorization);
+  const response = await handleRequest(new Request(
+    "https://worker.example/v1/responses/status", { method: "GET", headers },
+  ), {
+    DB: database,
+    MOONBACK_INTAKE_SECRET: SECRET,
+  });
+  return { response, payload: await response.json(), database };
+}
+
+function cursorFor(identifier) {
+  return `sha256:${createHash("sha256").update(identifier).digest("hex")}`;
 }
 
 test("valid request uses a bound pending INSERT and returns a fixed receipt", async () => {
@@ -162,4 +192,86 @@ test("handler emits no custom logs or submitted values", async () => {
     Object.assign(console, original);
   }
   assert.deepEqual(calls, []);
+});
+
+test("status distinguishes empty, pending, published, and mixed rows", async () => {
+  const newerId = "response-20261010-newer";
+  const cases = [
+    [new FakeDB(), { pending: false, cursor: null }],
+    [new FakeDB({ pending: 1, latestId: valid.id }),
+      { pending: true, cursor: cursorFor(valid.id) }],
+    [new FakeDB({ pending: 0, latestId: valid.id }),
+      { pending: false, cursor: cursorFor(valid.id) }],
+    [new FakeDB({ pending: 1, latestId: newerId }),
+      { pending: true, cursor: cursorFor(newerId) }],
+  ];
+  for (const [database, expected] of cases) {
+    const result = await runStatus(database);
+    assert.equal(result.response.status, 200);
+    assert.deepEqual(result.payload, expected);
+    assert.equal(database.queries.length, 1);
+  }
+});
+
+test("status uses one snapshot when an INSERT happens after the first read", async () => {
+  let pending = 0;
+  let latestId = null;
+  let reads = 0;
+  const insertedId = "response-snapshot-regression-new";
+  const database = {
+    prepare(sql) {
+      return {
+        async first() {
+          reads += 1;
+          const snapshot = { pending, latest_id: latestId };
+          // Reproduce the old inter-SELECT window: commit after the first read.
+          pending = 1;
+          latestId = insertedId;
+          if (sql.includes("AS latest_id")) return snapshot;
+          if (sql.includes("SELECT EXISTS")) return { pending: snapshot.pending };
+          return { id: latestId };
+        },
+      };
+    },
+  };
+  const before = await runStatus(database);
+  assert.equal(before.response.status, 200);
+  assert.deepEqual(before.payload, { pending: false, cursor: null });
+  assert.equal(reads, 1);
+  const after = await runStatus(database);
+  assert.deepEqual(after.payload, { pending: true, cursor: cursorFor(insertedId) });
+  assert.equal(reads, 2);
+});
+
+test("status cursor changes only when the latest response changes", async () => {
+  const firstId = "response-20261010-first";
+  const secondId = "response-20261010-second";
+  const pending = await runStatus(new FakeDB({ pending: 1, latestId: firstId }));
+  const published = await runStatus(new FakeDB({ pending: 0, latestId: firstId }));
+  const inserted = await runStatus(new FakeDB({ pending: 1, latestId: secondId }));
+  assert.equal(pending.payload.cursor, published.payload.cursor);
+  assert.notEqual(pending.payload.cursor, inserted.payload.cursor);
+});
+
+test("status exposes no stored response fields or identifiers", async () => {
+  const result = await runStatus(new FakeDB({ pending: 1, latestId: valid.id }));
+  const serialized = JSON.stringify(result.payload);
+  assert.deepEqual(Object.keys(result.payload).sort(), ["cursor", "pending"]);
+  for (const value of Object.values(valid)) {
+    assert.doesNotMatch(serialized, new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
+
+test("status requires authorization and reports D1 failure safely", async () => {
+  let database = new FakeDB({ pending: 1, latestId: valid.id });
+  let result = await runStatus(database, null);
+  assert.equal(result.response.status, 404);
+  assert.deepEqual(result.payload, { error: "not_found" });
+  assert.equal(database.queries.length, 0);
+
+  database = new FakeDB({ statusFailure: true });
+  result = await runStatus(database);
+  assert.equal(result.response.status, 503);
+  assert.deepEqual(result.payload, { error: "storage_unavailable" });
+  assert.doesNotMatch(JSON.stringify(result.payload), /private D1 details/);
 });

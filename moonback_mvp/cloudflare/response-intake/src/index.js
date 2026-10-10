@@ -166,6 +166,39 @@ async function authorized(request, env) {
   return safeSecretEqual(header.slice(7), env.MOONBACK_INTAKE_SECRET);
 }
 
+async function opaqueCursor(identifier) {
+  const bytes = await digest(identifier);
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  return `sha256:${hex}`;
+}
+
+async function responseStatus(env) {
+  try {
+    // Both values come from one statement snapshot, even during intake INSERTs.
+    const statusRow = await env.DB.prepare(
+      "SELECT EXISTS(SELECT 1 FROM responses WHERE status = 'pending') AS pending, "
+      + "(SELECT id FROM responses ORDER BY rowid DESC LIMIT 1) AS latest_id",
+    ).first();
+    const pendingNumber = statusRow?.pending;
+    if (pendingNumber !== 0 && pendingNumber !== 1) {
+      return json({ error: "storage_unavailable" }, 503);
+    }
+    let cursor = null;
+    if (statusRow.latest_id !== null) {
+      if (typeof statusRow.latest_id !== "string" || !ID_PATTERN.test(statusRow.latest_id)) {
+        return json({ error: "storage_unavailable" }, 503);
+      }
+      cursor = await opaqueCursor(statusRow.latest_id);
+    }
+    if (pendingNumber === 1 && cursor === null) {
+      return json({ error: "storage_unavailable" }, 503);
+    }
+    return json({ pending: pendingNumber === 1, cursor }, 200);
+  } catch {
+    return json({ error: "storage_unavailable" }, 503);
+  }
+}
+
 async function readLimitedBody(request) {
   if (!request.body) throw new Error("invalid_json");
   const reader = request.body.getReader();
@@ -197,8 +230,16 @@ function isDuplicateIdError(error) {
 
 export async function handleRequest(request, env) {
   const url = new URL(request.url);
-  if (request.method !== "POST" || url.pathname !== "/v1/responses"
-      || url.search || url.hash) {
+  if (url.search || url.hash) {
+    return json({ error: "not_found" }, 404);
+  }
+  if (request.method === "GET" && url.pathname === "/v1/responses/status") {
+    if (!(await authorized(request, env))) {
+      return json({ error: "not_found" }, 404);
+    }
+    return responseStatus(env);
+  }
+  if (request.method !== "POST" || url.pathname !== "/v1/responses") {
     return json({ error: "not_found" }, 404);
   }
   if (!(await authorized(request, env))) {

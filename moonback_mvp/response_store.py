@@ -6,12 +6,13 @@ import http.client
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import ssl
 import threading
 import time
 import warnings
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from response import (
     public_from_draft, validate_draft_response, validate_published_response,
@@ -127,8 +128,15 @@ class CloudflareResponseStore(ResponseIntakeStore):
         'Chrome/140.0.0.0 Safari/537.36'
     )
 
-    def __init__(self, worker_url, secret, *, timeout=8, transport=None):
+    CURSOR_PATTERN = re.compile(r'sha256:[0-9a-f]{64}')
+
+    def __init__(self, worker_url, secret, *, timeout=8, transport=None,
+                 status_transport=None):
         self.worker_url = self._validate_worker_url(worker_url)
+        parsed = urlsplit(self.worker_url)
+        self.status_url = urlunsplit((
+            parsed.scheme, parsed.netloc, parsed.path + '/status', '', '',
+        ))
         if type(secret) is not str or not secret:
             raise ValueError('Cloudflare response intake is not configured')
         if type(timeout) not in (int, float) or timeout <= 0:
@@ -136,6 +144,7 @@ class CloudflareResponseStore(ResponseIntakeStore):
         self._secret = secret
         self.timeout = timeout
         self._transport = transport or self._https_post
+        self._status_transport = status_transport or self._https_get
 
     @staticmethod
     def _validate_worker_url(value):
@@ -161,6 +170,20 @@ class CloudflareResponseStore(ResponseIntakeStore):
         )
         try:
             connection.request('POST', parsed.path, body=payload, headers=headers)
+            response = connection.getresponse()
+            body = response.read(self.MAX_PROVIDER_RESPONSE + 1)
+            return response.status, body
+        finally:
+            connection.close()
+
+    def _https_get(self, url, headers):
+        parsed = urlsplit(url)
+        connection = http.client.HTTPSConnection(
+            parsed.hostname, parsed.port or 443, timeout=self.timeout,
+            context=ssl.create_default_context(),
+        )
+        try:
+            connection.request('GET', parsed.path, headers=headers)
             response = connection.getresponse()
             body = response.read(self.MAX_PROVIDER_RESPONSE + 1)
             return response.status, body
@@ -199,6 +222,39 @@ class CloudflareResponseStore(ResponseIntakeStore):
                 or result.get('receipt_id') != draft['id']):
             raise CloudflareStoreError('bad_gateway')
         return draft['id']
+
+    def get_status(self):
+        """Return only the validated public pending marker from the Worker."""
+        headers = {
+            'Authorization': 'Bearer ' + self._secret,
+            'Accept': 'application/json',
+            'User-Agent': self.USER_AGENT,
+        }
+        try:
+            status, body = self._status_transport(self.status_url, headers)
+        except (TimeoutError, ConnectionError, OSError, http.client.HTTPException):
+            raise CloudflareStoreError('unavailable') from None
+        if status < 200 or status >= 300:
+            raise CloudflareStoreError('unavailable')
+        if type(body) is not bytes or len(body) > self.MAX_PROVIDER_RESPONSE:
+            raise CloudflareStoreError('bad_gateway')
+        try:
+            result = json.loads(body.decode('utf-8'))
+        except (UnicodeError, json.JSONDecodeError):
+            raise CloudflareStoreError('bad_gateway') from None
+        if type(result) is not dict or set(result) != {'pending', 'cursor'}:
+            raise CloudflareStoreError('bad_gateway')
+        pending = result.get('pending')
+        cursor = result.get('cursor')
+        if type(pending) is not bool:
+            raise CloudflareStoreError('bad_gateway')
+        if cursor is not None and (
+                type(cursor) is not str
+                or self.CURSOR_PATTERN.fullmatch(cursor) is None):
+            raise CloudflareStoreError('bad_gateway')
+        if pending and cursor is None:
+            raise CloudflareStoreError('bad_gateway')
+        return {'pending': pending, 'cursor': cursor}
 
 
 class LocalResponseRateLimiter:
