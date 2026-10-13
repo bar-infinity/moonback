@@ -1,7 +1,7 @@
 # MoonBack response Worker
 
-This directory contains the deployed Phase 2A / Phase 2B-1 source and D1 index
-migration, plus the local-only Phase 2B-2A management implementation.
+This directory contains Phase 2A / Phase 2B-1 / Phase 2B-2A source and the D1
+index migration, plus a new local-only direct public status implementation.
 `POST /v1/responses` receives validated pending drafts from MoonBack Render.
 `GET /v1/responses/status` returns only an anonymous pending signal and cursor.
 Both require the `MOONBACK_INTAKE_SECRET` bearer credential and use binding `DB`.
@@ -29,7 +29,25 @@ logs, ordinary variables, `.env`, `.dev.vars`, or Wrangler configuration.
 Production intake requires the three explicit Render backend settings. The
 Phase 2A setup is already active; local changes do not alter its configuration.
 
-## Phase 2B-2A read-only management (not deployed)
+## Direct public status (local implementation; not deployed)
+
+`GET /api/responses/status` is unauthenticated and does not pass through Render.
+It reuses the internal fixed status SELECT and exposes exactly `pending` and
+`cursor`. No submitted text, IDs, timestamps, agent data or credentials appear.
+No CORS relaxation, URL fetch, writes, or new secrets are involved.
+
+Successful signals are cached for 30 seconds per DB binding per isolate, with
+concurrent requests sharing one read. Response max-age uses the remaining TTL.
+Expired success is never returned on failure. D1 errors produce fixed 503 with
+no-store; a 3-second local negative cache limits repeated failing reads. The
+cache is not a distributed rate limit and new arrivals may take up to 30 seconds
+to become visible. Public requests use shared Workers/D1 allowances; free-tier
+quota exhaustion can affect other routes. Unknown queries, trailing slashes and
+methods other than GET are rejected. Existing intake, internal status and admin
+routes retain their authentication and behavior. No rollout has been performed
+for this public route, and ChatGPT task compatibility remains to be tested.
+
+## Phase 2B-2A read-only management
 
 `GET /v1/admin/responses` lists pending summaries, with default `limit=20` and
 maximum `limit=50`. Each item contains only `id`, `journal_id`, and `received_at`.
@@ -54,9 +72,9 @@ There is no management publication, rejection, download-to-draft, status-update
 or delete operation. The Worker DB binding itself is not a database read-only
 credential; the SELECT-only boundary is enforced by this management code.
 
-Do not put the management secret on Render. No management secret has been
-created or configured in this phase. A future approved rollout must register it
-and upload/deploy the new version. No production setting is changed locally.
+Do not put the management secret on Render. Management was rolled out separately
+with a distinct secret. The public status addition here does not alter those
+secrets or production settings; it requires a separately approved rollout.
 
 Authenticated management reads have a separate best-effort 60/minute per-isolate
 limit. Only recent timestamps are held in memory; no IP, agent identity or

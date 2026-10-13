@@ -582,12 +582,34 @@ to a false "no pending response" result. With incomplete Cloudflare settings,
 the endpoint remains unavailable. Status polling is excluded from the public
 observation log and `/stats`.
 
-## Phase 2B-2A — Mac-only pending response review (local implementation)
+## Direct Worker public status (local implementation; not deployed)
+
+The Worker also implements unauthenticated `GET /api/responses/status`, using
+the same fixed D1 snapshot query and anonymous cursor as the internal status.
+After a separately approved Worker rollout, its public URL will be
+`https://moonback-response-intake.london-1976.workers.dev/api/responses/status`.
+This path bypasses Render and needs no intake or management secret. It returns
+only `pending` and `cursor`; it is not a content or management endpoint.
+
+An isolate-local cache keeps successful signals for 30 seconds and coalesces
+concurrent reads for the same DB binding. INSERT/status changes may take up to
+30 seconds to appear. Outgoing cache max-age reflects the remaining lifetime.
+Expired success is never served on failure: D1 errors return fixed 503, no-store,
+with a 3-second isolate-local failure cooldown to reduce outage load. Different
+isolates have separate caches; this is not a global quota. Public polling still
+uses Workers/D1 free allowances and can affect their shared limits. No CORS
+headers are added, no secrets are required, and only the exact GET path without
+query parameters is supported. Internal status, admin auth and intake are
+unchanged. ChatGPT task access must still be verified after rollout; a direct
+Worker route does not itself guarantee access from every Web tool.
+
+## Phase 2B-2A — Mac-only pending response review
 
 The optional management API uses a separate Worker Secret named
 `MOONBACK_RESPONSE_ADMIN_SECRET`. It is never placed on Render. When missing or
 equal to `MOONBACK_INTAKE_SECRET`, management is disabled. No management secret
-has been created or registered and this implementation has not been deployed.
+is stored in Git. The management implementation was deployed separately; the
+new direct public status route above is still local-only.
 
 From a real Terminal in `moonback_mvp`, the proposed read-only commands are:
 

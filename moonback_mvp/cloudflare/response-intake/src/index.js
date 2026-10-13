@@ -201,6 +201,57 @@ async function responseStatus(env) {
   }
 }
 
+// Per-isolate cache, separate from authenticated status and intake. The WeakMap
+// prevents one DB binding's cached signal from being reused for another binding.
+export class PublicStatusCache {
+  constructor(now = () => Date.now()) {
+    this.now = now;
+    this.cached = null;
+    this.startedAt = 0;
+    this.expiresAt = 0;
+    this.inFlight = null;
+  }
+
+  async get(loader) {
+    const instant = this.now();
+    if (!this.cached || instant < this.startedAt || instant >= this.expiresAt) {
+      if (!this.inFlight) {
+        this.inFlight = (async () => {
+          let response;
+          try {
+            response = await loader();
+          } catch {
+            response = json({ error: "storage_unavailable" }, 503);
+          }
+          this.cached = response;
+          this.startedAt = this.now();
+          // Brief negative caching limits outage load; never serve stale success.
+          this.expiresAt = this.startedAt + (response.status === 200 ? 30000 : 3000);
+        })().finally(() => { this.inFlight = null; });
+      }
+      await this.inFlight;
+    }
+    const response = this.cached.clone();
+    const remaining = Math.max(0, Math.floor((this.expiresAt - this.now()) / 1000));
+    response.headers.set("Cache-Control", response.status === 200
+      ? `public, max-age=${remaining}, must-revalidate` : "no-store");
+    return response;
+  }
+}
+
+const publicStatusCaches = new WeakMap();
+async function publicResponseStatus(env) {
+  if (!env.DB || typeof env.DB !== "object") {
+    return json({ error: "storage_unavailable" }, 503);
+  }
+  let cache = publicStatusCaches.get(env.DB);
+  if (!cache) {
+    cache = new PublicStatusCache();
+    publicStatusCaches.set(env.DB, cache);
+  }
+  return cache.get(() => responseStatus(env));
+}
+
 async function readLimitedBody(request) {
   if (!request.body) throw new Error("invalid_json");
   const reader = request.body.getReader();
@@ -237,6 +288,9 @@ export async function handleRequest(request, env) {
   }
   if (url.search || url.hash) {
     return json({ error: "not_found" }, 404);
+  }
+  if (request.method === "GET" && url.pathname === "/api/responses/status") {
+    return publicResponseStatus(env);
   }
   if (request.method === "GET" && url.pathname === "/v1/responses/status") {
     if (!(await authorized(request, env))) {
