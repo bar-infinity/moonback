@@ -1,0 +1,47 @@
+name: Sync public response status
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: moonback-response-status-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'bar-infinity/moonback' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Read and validate public signal
+        run: python3 scripts/sync_response_status.py --live
+      - name: Commit only a changed snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- moonback_mvp/status/response-status.json
+          if git diff --cached --quiet; then
+            echo "Status snapshot unchanged; no commit."
+            exit 0
+          fi
+          if [[ "$(git diff --cached --name-only)" != "moonback_mvp/status/response-status.json" ]]; then
+            echo "Unexpected staged files; stopping."
+            exit 1
+          fi
+          git diff --cached --check
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m 'Sync response status [skip render]'
+          # Non-fast-forward rejection fails the run: no force, rebase or retry.
+          git push origin HEAD:main

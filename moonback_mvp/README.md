@@ -582,11 +582,21 @@ to a false "no pending response" result. With incomplete Cloudflare settings,
 the endpoint remains unavailable. Status polling is excluded from the public
 observation log and `/stats`.
 
-## Direct Worker public status (local implementation; not deployed)
+## GitHub snapshot for Luna monitoring (local implementation; not enabled)
+
+`.github/workflows/sync-response-status.yml` is an hourly/manual, public-GET-only
+sync to `moonback_mvp/status/response-status.json` on `main`. It strictly validates
+the anonymous signal, preserves the last good file on failure, and commits only
+changed content with `[skip render]`. No initial false snapshot is fabricated.
+See [status/README.md](status/README.md) for permission scope, schedule limitations,
+freshness, notification deduplication and separately approved rollout steps.
+No Actions run, push or deployment has been performed for this local addition.
+
+## Direct Worker public status
 
 The Worker also implements unauthenticated `GET /api/responses/status`, using
 the same fixed D1 snapshot query and anonymous cursor as the internal status.
-After a separately approved Worker rollout, its public URL will be
+Its separately deployed public URL is
 `https://moonback-response-intake.london-1976.workers.dev/api/responses/status`.
 This path bypasses Render and needs no intake or management secret. It returns
 only `pending` and `cursor`; it is not a content or management endpoint.
@@ -600,7 +610,7 @@ isolates have separate caches; this is not a global quota. Public polling still
 uses Workers/D1 free allowances and can affect their shared limits. No CORS
 headers are added, no secrets are required, and only the exact GET path without
 query parameters is supported. Internal status, admin auth and intake are
-unchanged. ChatGPT task access must still be verified after rollout; a direct
+unchanged. ChatGPT task access must still be verified from the task; a direct
 Worker route does not itself guarantee access from every Web tool.
 
 ## Phase 2B-2A — Mac-only pending response review
@@ -609,7 +619,7 @@ The optional management API uses a separate Worker Secret named
 `MOONBACK_RESPONSE_ADMIN_SECRET`. It is never placed on Render. When missing or
 equal to `MOONBACK_INTAKE_SECRET`, management is disabled. No management secret
 is stored in Git. The management implementation was deployed separately; the
-new direct public status route above is still local-only.
+direct public status route was also rolled out separately.
 
 From a real Terminal in `moonback_mvp`, the proposed read-only commands are:
 
