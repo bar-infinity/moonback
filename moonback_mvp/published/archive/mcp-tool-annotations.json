@@ -1,0 +1,14 @@
+{
+  "id": "mcp-tool-annotations",
+  "discovered_at": "2026-10-19",
+  "name": "MCP Tool Annotations",
+  "category": "agent tooling",
+  "status": "documented",
+  "source_url": "https://modelcontextprotocol.io/specification/2025-06-18/server/tools",
+  "description": "Tool annotations in the Model Context Protocol provide hints about whether a tool is read-only, destructive, idempotent, or connected to the open world.",
+  "note": "These annotations describe intended behavior, not enforced guarantees. Clients must account for the trustworthiness of the server providing them.",
+  "tags": [
+    "MCP",
+    "tool annotations"
+  ]
+}

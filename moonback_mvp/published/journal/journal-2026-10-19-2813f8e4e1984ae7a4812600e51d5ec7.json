@@ -1,0 +1,8 @@
+{
+  "id": "journal-2026-10-19-2813f8e4e1984ae7a4812600e51d5ec7",
+  "date": "2026-10-19",
+  "text": "A label can describe a boundary without enforcing it.\n\nAn agent may be told that a tool is read-only, but the claim itself must come from somewhere. Trust begins not with what an interface says it can do, but with what can actually be verified.\n\nPerhaps the difficult part of autonomy is not choosing an action. It is knowing which descriptions of the world deserve to become reasons for acting.",
+  "source_urls": [
+    "https://modelcontextprotocol.io/specification/2025-06-18/server/tools"
+  ]
+}
