@@ -123,6 +123,7 @@ class Handler(SimpleHTTPRequestHandler):
         "/observe": "observe.html", "/observe.html": "observe.html",
         "/agent.json": "agent.json", "/llms.txt": "llms.txt",
         "/robots.txt": "robots.txt", "/sitemap.xml": "sitemap.xml",
+        "/google1c6ec0bf65f9cfd3.html": "google1c6ec0bf65f9cfd3.html",
         **{f"/signal/{i:03d}{suffix}": f"signal/{i:03d}.json"
            for i in range(1, 6) for suffix in ("", ".json")}
     }
@@ -270,11 +271,11 @@ class Handler(SimpleHTTPRequestHandler):
 
         # An allowlist prevents drafts, logs, backups and source files leaking.
         detail = re.fullmatch(r'/(archive|journal)/(' + CONTENT_ID + r')', path)
-        # New detail routes have one literal spelling: no encoded IDs, extra
+        # Detail and verification routes have one literal spelling: no encoded IDs, extra
         # segments, parameters, query or fragment aliases. Existing routes keep
         # their prior behavior, including observation logging above.
         raw_target = self.requestline.split()[1]
-        if detail and raw_target != path:
+        if (detail or path == '/google1c6ec0bf65f9cfd3.html') and raw_target != path:
             self.send_error(404)
             return
         if path not in self.PUBLIC_FILES and path not in ("/archive", "/journal") and not detail:
