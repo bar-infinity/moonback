@@ -187,9 +187,38 @@ owner approves the design. Current Render settings and production deployment
 have not been accessed or verified.
 
 `agent.json` and `llms.txt` now advertise `/archive` and `/journal`.
-The existing sitemap still uses `https://example.com/`; do not add invented
-production URLs. Once the canonical public origin is confirmed, update all sitemap
-URLs and add the two pages together. robots.txt retains the existing behavior.
+The sitemap uses the approved public origin `https://moonback-jbz0.onrender.com`
+and lists `/`, `/archive`, and `/journal`. `robots.txt` keeps `User-agent: *` /
+`Allow: /` and advertises the absolute sitemap URL. The sitemap remains a static
+allowlisted file; no new routes or runtime URL generation are introduced.
+
+### GEO-001 search foundation
+
+The sitemap deliberately omits HTML aliases, the volatile observation UI, JSON
+signals, machine discovery files and APIs. Omission does not block access or
+change crawler permissions. `llms.txt` provides a plain-text machine discovery
+guide; `agent.json` describes the trail, public UI and response/status interfaces.
+Both still advertise Archive/Journal and remain unchanged in this task.
+
+The homepage's existing title/description, black screen and point are preserved.
+Observe, Archive and Journal have descriptions matching their visible content;
+Archive/Journal retain their titles, headings, source links and escaped records.
+All visitors receive the same metadata and content, irrespective of User-Agent.
+No claims of index inclusion or AI citation are made by these changes.
+
+If the approved public origin changes, update `sitemap.xml`, the `Sitemap:` line
+in `robots.txt`, and `PUBLIC_ORIGIN` in `tests/test_geo.py` together. Run the full
+test suite and verify every listed URL with GET/HEAD before a separately approved
+deployment. Keep this small static setup until route growth warrants a generator;
+do not derive canonical URLs from untrusted request Host headers. No invented
+`lastmod` dates, priorities or per-Journal routes are emitted.
+
+Local HTTP tests use the existing in-memory fake socket and a temporary log, not
+production data or an external network. They cover XML/origin/path checks, every
+public GET/HEAD route, the optional status route with a fake backend, metadata,
+unchanged homepage content, no cloaking and continued private-file denial.
+Publication, draft permissions, secret screening and POST boundaries remain
+covered by the existing regression tests.
 
 ### Tests and remaining checks
 

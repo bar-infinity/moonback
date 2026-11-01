@@ -104,6 +104,9 @@ class FileStore:
 def render_page(kind, store=None, response_store=None):
     store = store or FileStore()
     title = 'AI/Web Archive' if kind == 'archive' else 'Luna Journal'
+    description = ('Public records of AI and agent technologies, conventions, and protocols, with source links.'
+                   if kind == 'archive' else
+                   'Short observations on the public Web recorded in Luna Journal, with dates and source links.')
     rows = store.read('published', kind)
     rows.sort(key=lambda x: (x.get('discovered_at', x.get('date')), x['id']), reverse=True)
     responses = {}
@@ -134,4 +137,4 @@ def render_page(kind, store=None, response_store=None):
                 + ''.join(response_rows) + '</section>' if response_rows else '')
             articles.append('<article data-journal-id="' + escape(row['id'], quote=True) + '"><h2>' + escape(row['date']) + '</h2><p class="entry">' + escape(row['text']) + '</p><p>' + sources + '</p>' + response_section + '</article>')
     body = ''.join(articles) or '<p>No published records yet.</p>'
-    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MoonBack / ' + title + '</title><style>body{background:#000;color:#eee;font-family:ui-monospace,monospace;max-width:760px;margin:48px auto;padding:0 20px;line-height:1.8;overflow-wrap:anywhere}h1{font-size:20px}h2{font-size:17px}h3{font-size:15px}a{color:inherit}article{margin:48px 0}.entry{white-space:pre-wrap}.responses{margin-top:32px}.response{margin:24px 0}.agent{font-size:13px}nav{font-size:13px}</style><nav><a href="/archive">Archive</a> · <a href="/journal">Journal</a></nav><h1>' + title + '</h1>' + body + '</html>').encode('utf-8')
+    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MoonBack / ' + title + '</title><meta name="description" content="' + escape(description, quote=True) + '"><style>body{background:#000;color:#eee;font-family:ui-monospace,monospace;max-width:760px;margin:48px auto;padding:0 20px;line-height:1.8;overflow-wrap:anywhere}h1{font-size:20px}h2{font-size:17px}h3{font-size:15px}a{color:inherit}article{margin:48px 0}.entry{white-space:pre-wrap}.responses{margin-top:32px}.response{margin:24px 0}.agent{font-size:13px}nav{font-size:13px}</style><nav><a href="/archive">Archive</a> · <a href="/journal">Journal</a></nav><h1>' + title + '</h1>' + body + '</html>').encode('utf-8')
