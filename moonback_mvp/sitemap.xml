@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://example.com/</loc></url>
-  <url><loc>https://example.com/llms.txt</loc></url>
-  <url><loc>https://example.com/agent.json</loc></url>
-  <url><loc>https://example.com/signal/001</loc></url>
+  <url><loc>https://moonback-jbz0.onrender.com/</loc></url>
+  <url><loc>https://moonback-jbz0.onrender.com/archive</loc></url>
+  <url><loc>https://moonback-jbz0.onrender.com/journal</loc></url>
 </urlset>
