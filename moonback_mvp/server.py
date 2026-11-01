@@ -3,7 +3,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 import ipaddress, json, re, os, threading, time
-from content import FileStore, render_page, validate
+from content import (FileStore, render_page, render_sitemap, validate,
+                     CONTENT_ID, PublishedItemNotFound)
 from response import ResponseValidationError, build_draft_response
 from response_store import (
     CloudflareResponseStore, CloudflareStoreError, FileResponseStore,
@@ -268,13 +269,32 @@ class Handler(SimpleHTTPRequestHandler):
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
         # An allowlist prevents drafts, logs, backups and source files leaking.
-        if path not in self.PUBLIC_FILES and path not in ("/archive", "/journal"):
+        detail = re.fullmatch(r'/(archive|journal)/(' + CONTENT_ID + r')', path)
+        # New detail routes have one literal spelling: no encoded IDs, extra
+        # segments, parameters, query or fragment aliases. Existing routes keep
+        # their prior behavior, including observation logging above.
+        raw_target = self.requestline.split()[1]
+        if detail and raw_target != path:
+            self.send_error(404)
+            return
+        if path not in self.PUBLIC_FILES and path not in ("/archive", "/journal") and not detail:
             self.send_error(404)
             return
 
-        if path in ("/archive", "/journal"):
+        if path == '/sitemap.xml':
             try:
-                payload = render_page(path[1:])
+                payload = render_sitemap()
+            except (ValueError, OSError, TypeError):
+                self.send_error(503, 'Published content unavailable')
+                return
+            self.send_payload(payload, 'application/xml; charset=utf-8', head)
+        elif path in ("/archive", "/journal") or detail:
+            try:
+                payload = (render_page(detail[1], ident=detail[2]) if detail
+                           else render_page(path[1:]))
+            except PublishedItemNotFound:
+                self.send_error(404)
+                return
             except (ValueError, OSError, TypeError):
                 self.send_error(503, "Published content unavailable")
                 return
