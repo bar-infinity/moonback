@@ -7,11 +7,18 @@ from datetime import date
 from html import escape
 from pathlib import Path
 from urllib.parse import urlsplit
+import xml.etree.ElementTree as ET
 
 from response_store import FileResponseStore
 
 ROOT = Path(__file__).resolve().parent
 KINDS = ('archive', 'journal')
+PUBLIC_ORIGIN = 'https://moonback-jbz0.onrender.com'
+CONTENT_ID = r'[a-z0-9][a-z0-9_-]{0,79}'
+
+
+class PublishedItemNotFound(LookupError):
+    pass
 
 
 def public_url(value):
@@ -61,8 +68,18 @@ class FileStore:
         return self.root / stage / kind
 
     def read(self, stage, kind):
-        return [validate(kind, json.loads(p.read_text(encoding='utf-8')))
-                for p in sorted(self.directory(stage, kind).glob('*.json'))]
+        directory = self.directory(stage, kind)
+        if stage == 'published' and directory.is_symlink():
+            raise ValueError('Invalid published directory')
+        rows = []
+        for p in sorted(directory.glob('*.json')):
+            if stage == 'published' and p.is_symlink():
+                raise ValueError('Invalid published file')
+            item = validate(kind, json.loads(p.read_text(encoding='utf-8')))
+            if stage == 'published' and p.stem != item['id']:
+                raise ValueError('Published filename and id must match')
+            rows.append(item)
+        return rows
 
     def save(self, stage, kind, item):
         validate(kind, item)
@@ -101,13 +118,56 @@ class FileStore:
         return self.save('published', kind, {k: item[k] for k in fields})
 
 
-def render_page(kind, store=None, response_store=None):
+def render_sitemap(store=None):
+    """Extend the static base sitemap using the same validated public records as HTML."""
+    store = store or FileStore()
+    namespace = 'http://www.sitemaps.org/schemas/sitemap/0.9'
+    try:
+        root = ET.fromstring((ROOT / 'sitemap.xml').read_bytes())
+    except ET.ParseError:
+        raise ValueError('Invalid base sitemap') from None
+    base_urls = [PUBLIC_ORIGIN + path for path in ('/', '/archive', '/journal')]
+    if (root.tag != '{' + namespace + '}urlset' or
+            [node.findtext('{' + namespace + '}loc') for node in root] != base_urls):
+        raise ValueError('Invalid base sitemap')
+    for kind in KINDS:
+        for row in store.read('published', kind):
+            node = ET.SubElement(root, '{' + namespace + '}url')
+            ET.SubElement(node, '{' + namespace + '}loc').text = (
+                PUBLIC_ORIGIN + '/' + kind + '/' + row['id'])
+    return ET.tostring(root, encoding='utf-8', xml_declaration=True,
+                       default_namespace=namespace)
+
+
+def render_page(kind, store=None, response_store=None, *, ident=None):
+    if kind not in KINDS:
+        raise ValueError('Invalid content kind')
+    if ident is not None and not re.fullmatch(CONTENT_ID, ident):
+        raise PublishedItemNotFound()
     store = store or FileStore()
     title = 'AI/Web Archive' if kind == 'archive' else 'Luna Journal'
     description = ('Public records of AI and agent technologies, conventions, and protocols, with source links.'
                    if kind == 'archive' else
                    'Short observations on the public Web recorded in Luna Journal, with dates and source links.')
     rows = store.read('published', kind)
+    if ident is not None:
+        rows = [row for row in rows if row['id'] == ident]
+        if not rows:
+            raise PublishedItemNotFound()
+    heading = title
+    page_title = 'MoonBack / ' + title
+    canonical = PUBLIC_ORIGIN + '/' + kind
+    if ident is not None:
+        row = rows[0]
+        canonical += '/' + ident
+        if kind == 'archive':
+            heading = row['name']
+            page_title = row['name'] + ' / AI/Web Archive / ' + ident + ' / MoonBack'
+            description = ' '.join(row['description'].split())[:200]
+        else:
+            heading = 'Luna Journal / ' + row['date']
+            page_title = heading + ' / ' + ident + ' / MoonBack'
+            description = ' '.join(row['text'].split())[:200]
     rows.sort(key=lambda x: (x.get('discovered_at', x.get('date')), x['id']), reverse=True)
     responses = {}
     if kind == 'journal':
@@ -119,8 +179,11 @@ def render_page(kind, store=None, response_store=None):
             responses.setdefault(response['journal_id'], []).append(response)
     articles = []
     for row in rows:
+        item_path = '/' + kind + '/' + row['id']
         if kind == 'archive':
-            articles.append('<article><p>' + escape(row['discovered_at']) + '</p><h2>' + escape(row['name']) + '</h2><p>' + escape(row['category']) + ' / ' + escape(row['status']) + '</p><p>' + escape(row['description']) + '</p><p>' + escape(row['note']) + '</p><a rel="noreferrer" href="' + escape(row['source_url'], quote=True) + '">Source</a></article>')
+            name = ('<h2><a href="' + item_path + '">' + escape(row['name'])
+                    + '</a></h2>') if ident is None else ''
+            articles.append('<article><p><time datetime="' + escape(row['discovered_at'], quote=True) + '">' + escape(row['discovered_at']) + '</time></p>' + name + '<p>' + escape(row['category']) + ' / ' + escape(row['status']) + '</p><p>' + escape(row['description']) + '</p><p>' + escape(row['note']) + '</p><a rel="noreferrer" href="' + escape(row['source_url'], quote=True) + '">Source</a></article>')
         else:
             sources = ' · '.join('<a rel="noreferrer" href="' + escape(u, quote=True) + '">Source</a>' for u in row['source_urls'])
             response_rows = []
@@ -135,6 +198,8 @@ def render_page(kind, store=None, response_store=None):
             response_section = (
                 '<section class="responses"><h3>Responses</h3>'
                 + ''.join(response_rows) + '</section>' if response_rows else '')
-            articles.append('<article data-journal-id="' + escape(row['id'], quote=True) + '"><h2>' + escape(row['date']) + '</h2><p class="entry">' + escape(row['text']) + '</p><p>' + sources + '</p>' + response_section + '</article>')
+            date_text = '<time datetime="' + escape(row['date'], quote=True) + '">' + escape(row['date']) + '</time>'
+            date_heading = ('<h2><a href="' + item_path + '">' + date_text + '</a></h2>') if ident is None else '<p>' + date_text + '</p>'
+            articles.append('<article data-journal-id="' + escape(row['id'], quote=True) + '">' + date_heading + '<p class="entry">' + escape(row['text']) + '</p><p>' + sources + '</p>' + response_section + '</article>')
     body = ''.join(articles) or '<p>No published records yet.</p>'
-    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MoonBack / ' + title + '</title><meta name="description" content="' + escape(description, quote=True) + '"><style>body{background:#000;color:#eee;font-family:ui-monospace,monospace;max-width:760px;margin:48px auto;padding:0 20px;line-height:1.8;overflow-wrap:anywhere}h1{font-size:20px}h2{font-size:17px}h3{font-size:15px}a{color:inherit}article{margin:48px 0}.entry{white-space:pre-wrap}.responses{margin-top:32px}.response{margin:24px 0}.agent{font-size:13px}nav{font-size:13px}</style><nav><a href="/archive">Archive</a> · <a href="/journal">Journal</a></nav><h1>' + title + '</h1>' + body + '</html>').encode('utf-8')
+    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + escape(page_title) + '</title><meta name="description" content="' + escape(description, quote=True) + '"><link rel="canonical" href="' + escape(canonical, quote=True) + '"><style>body{background:#000;color:#eee;font-family:ui-monospace,monospace;max-width:760px;margin:48px auto;padding:0 20px;line-height:1.8;overflow-wrap:anywhere}h1{font-size:20px}h2{font-size:17px}h3{font-size:15px}a{color:inherit}article{margin:48px 0}.entry{white-space:pre-wrap}.responses{margin-top:32px}.response{margin:24px 0}.agent{font-size:13px}nav{font-size:13px}</style><nav><a href="/archive">Archive</a> · <a href="/journal">Journal</a></nav><h1>' + escape(heading) + '</h1>' + body + '</html>').encode('utf-8')

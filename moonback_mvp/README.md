@@ -188,9 +188,10 @@ have not been accessed or verified.
 
 `agent.json` and `llms.txt` now advertise `/archive` and `/journal`.
 The sitemap uses the approved public origin `https://moonback-jbz0.onrender.com`
-and lists `/`, `/archive`, and `/journal`. `robots.txt` keeps `User-agent: *` /
-`Allow: /` and advertises the absolute sitemap URL. The sitemap remains a static
-allowlisted file; no new routes or runtime URL generation are introduced.
+and lists `/`, `/archive`, and `/journal` plus published individual records.
+`robots.txt` keeps `User-agent: *` / `Allow: /` and advertises the absolute sitemap
+URL. The checked-in XML remains the three-page base template; GEO-002 extends it
+at request time using validated published records, as described below.
 
 ### GEO-001 search foundation
 
@@ -207,11 +208,11 @@ All visitors receive the same metadata and content, irrespective of User-Agent.
 No claims of index inclusion or AI citation are made by these changes.
 
 If the approved public origin changes, update `sitemap.xml`, the `Sitemap:` line
-in `robots.txt`, and `PUBLIC_ORIGIN` in `tests/test_geo.py` together. Run the full
+in `robots.txt`, `PUBLIC_ORIGIN` in `content.py`, and the origin assertion in
+`tests/test_geo.py` together. Run the full
 test suite and verify every listed URL with GET/HEAD before a separately approved
-deployment. Keep this small static setup until route growth warrants a generator;
-do not derive canonical URLs from untrusted request Host headers. No invented
-`lastmod` dates, priorities or per-Journal routes are emitted.
+deployment. Do not derive canonical URLs from untrusted request Host headers.
+No invented `lastmod` dates or priorities are emitted.
 
 Local HTTP tests use the existing in-memory fake socket and a temporary log, not
 production data or an external network. They cover XML/origin/path checks, every
@@ -219,6 +220,40 @@ public GET/HEAD route, the optional status route with a fake backend, metadata,
 unchanged homepage content, no cloaking and continued private-file denial.
 Publication, draft permissions, secret screening and POST boundaries remain
 covered by the existing regression tests.
+
+### GEO-002 individual records and canonical URLs
+
+`GET` and `HEAD /archive/{id}` and `/journal/{id}` expose only validated records
+already in `published/`. IDs must match `[a-z0-9][a-z0-9_-]{0,79}`; missing or
+draft-only IDs return 404. These new detail URLs require one literal spelling:
+uppercase/encoded IDs, trailing slashes, additional segments, query strings and
+path parameters return 404. Existing routes retain their previous behavior.
+Published filenames must match their record IDs; symlinked files or content
+directories and malformed published data fail closed with 503 rather than being
+rendered or silently omitted. Draft JSON is never used as public content.
+
+Lists link each record's existing heading to its individual page. Detail pages
+show the original record, recorded date, source links and any matching published
+Journal responses, preserving escaping and external-link protections. The source
+link identifies the external material; the canonical identifies the MoonBack
+record, not ownership or authorship of the source. Archive discovery dates and
+Journal dates are reused without inventing publication or modification times.
+
+Each list/detail has a self-referencing canonical under the fixed approved origin,
+independent of request Host headers. Detail titles include the record ID for
+uniqueness; descriptions use up to 200 characters of the existing Archive
+description or whitespace-normalized Journal body. No LLM or external fetch is
+used to produce metadata. The homepage's HTML and visual appearance are unchanged.
+
+`GET`/`HEAD /sitemap.xml` now append all validated published Archive/Journal URLs
+to the checked-in three-page XML template. Both use the same `FileStore.read`
+validation as HTML. A newly reviewed/published JSON is discoverable without a
+manual sitemap edit once it is present in the serving checkout. Drafts and raw
+JSON paths are excluded; corruption returns 503, not an apparently complete
+sitemap. There are no dependencies, background generators, invented timestamps
+or deployment changes. Directly reading the XML file yields the base template;
+the HTTP endpoint is the complete sitemap. Tests cover the expanded route set,
+metadata, traversal/alias rejection, sitemap parity and published responses.
 
 ### Tests and remaining checks
 

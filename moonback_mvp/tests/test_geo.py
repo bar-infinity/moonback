@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
 import server
+import content
 from test_v03 import FakeSocket
 
 
@@ -68,7 +69,7 @@ class SearchFoundationTests(unittest.TestCase):
                    (line.split(': ', 1) for line in lines[1:])}
         return int(lines[0].split()[1]), headers, body
 
-    def test_sitemap_xml_has_only_selected_absolute_public_urls(self):
+    def test_sitemap_xml_has_only_selected_base_and_published_urls(self):
         status, headers, body = self.request('/sitemap.xml')
         self.assertEqual(status, 200)
         self.assertIn('xml', headers['content-type'])
@@ -76,7 +77,11 @@ class SearchFoundationTests(unittest.TestCase):
         namespace = '{http://www.sitemaps.org/schemas/sitemap/0.9}'
         self.assertEqual(root.tag, namespace + 'urlset')
         urls = [item.find(namespace + 'loc').text for item in root]
-        self.assertEqual(urls, [PUBLIC_ORIGIN + path for path in SITEMAP_PATHS])
+        expected = [PUBLIC_ORIGIN + path for path in SITEMAP_PATHS]
+        for kind in content.KINDS:
+            expected.extend(PUBLIC_ORIGIN + '/' + kind + '/' + row['id']
+                            for row in content.FileStore().read('published', kind))
+        self.assertEqual(urls, expected)
         self.assertEqual(len(urls), len(set(urls)))
         self.assertNotIn(b'example.com', body)
         for url in urls:
