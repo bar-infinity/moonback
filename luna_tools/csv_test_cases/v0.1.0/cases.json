@@ -5,7 +5,10 @@
   "title": "LUNA Tools / CSV Test Cases",
   "language": "en",
   "created_on": "2026-11-03",
-  "publication_status": "local_prototype_not_published",
+  "publication_status": {
+    "github_distribution": "available_under_cc0_1_0",
+    "moonback_web_route": "not_implemented"
+  },
   "license": {
     "spdx_id": "CC0-1.0",
     "url": "https://creativecommons.org/publicdomain/zero/1.0/"

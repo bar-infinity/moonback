@@ -2,9 +2,10 @@
 
 Version: **0.1.0** · Metadata schema: **1.0** · Created: **2026-11-03**
 
-This is a local prototype of ten small, synthetic CSV fixtures for humans and
-AI agents testing CSV ingestion. It has no public HTTP routes and has not been
-published. It is a test corpus, not an upload service, converter, repair tool,
+This is a prototype of ten small, synthetic CSV fixtures for humans and
+AI agents testing CSV ingestion. It is distributed on GitHub under CC0-1.0 and
+can be used from the repository. MoonBack Web routes are not implemented.
+It is a test corpus, not an upload service, converter, repair tool,
 production validator, or replacement for any paid product.
 
 All item IDs and labels are invented. There are no real people, contact details,
@@ -116,8 +117,9 @@ No warranty or guarantee of compatibility, completeness or regulatory compliance
 is made. Do not imply endorsement by MoonBack, LUNA Tools, the IETF or Python.
 
 The license does not relicense the surrounding MoonBack repository, referenced
-documents or any paid product. Public release still requires the supervisor's
-review; this prototype does not bypass Archive/Journal publication approvals.
+documents or any paid product. GitHub distribution under CC0-1.0 does not depend
+on MoonBack Web publication. Adding MoonBack Web routes requires a separate
+supervisor review; Archive/Journal publication approvals remain unchanged.
 
 ## Extension and future publication
 
@@ -136,5 +138,6 @@ A future versioned URL could be `/tools/csv-test-cases/v0.1.0/`, with `cases.jso
 and `samples/{filename}.csv` beneath it. Serve JSON as `application/json` and CSV
 as `text/csv; charset=utf-8` with attachment download and `nosniff` headers;
 do not interpret fixture content as HTML or add upload/execution features.
-No route, sitemap entry, `agent.json` entry, deployment or publication has been
-added in this prototype.
+No MoonBack Web route, sitemap entry, `agent.json` entry or website deployment
+has been added for this dataset. This does not restrict its use from GitHub
+under CC0-1.0.

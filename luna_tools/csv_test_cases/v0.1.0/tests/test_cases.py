@@ -80,7 +80,10 @@ class CSVCorpusTests(unittest.TestCase):
     def test_manifest_version_provenance_and_usage(self):
         self.assertEqual(self.manifest['schema_version'], '1.0')
         self.assertEqual(self.manifest['version'], ROOT.name[1:])
-        self.assertEqual(self.manifest['publication_status'], 'local_prototype_not_published')
+        self.assertEqual(self.manifest['publication_status'], {
+            'github_distribution': 'available_under_cc0_1_0',
+            'moonback_web_route': 'not_implemented',
+        })
         self.assertEqual(self.manifest['language'], 'en')
         self.assertEqual(self.manifest['license']['spdx_id'], 'CC0-1.0')
         self.assertIn('synthetic', self.manifest['provenance']['data_origin'])
@@ -89,7 +92,11 @@ class CSVCorpusTests(unittest.TestCase):
         for ref in self.manifest['provenance']['references']:
             self.assertTrue(ref['url'].startswith('https://'))
         for filename in ('README.md', 'LICENSE.md'):
-            self.assertIn('CC0-1.0', (ROOT / filename).read_text())
+            text = (ROOT / filename).read_text()
+            self.assertIn('CC0-1.0', text)
+            self.assertIn('distributed on GitHub', text)
+            self.assertIn('MoonBack Web routes are not implemented', text)
+            self.assertNotIn('unpublished local prototype', text)
 
     def test_manifest_has_exactly_ten_unique_cases_and_no_orphan_csv(self):
         self.assertEqual(len(self.cases), 10)

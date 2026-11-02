@@ -18,5 +18,7 @@ notice beyond the scope of CC0. Do not imply endorsement.
 
 Scope: `luna_tools/csv_test_cases/v0.1.0/` only. This notice does not change the
 license or terms of the surrounding MoonBack code, third-party references,
-existing records or any paid product. This is an unpublished local prototype;
-publication remains subject to the supervisor's review.
+existing records or any paid product. The prototype is distributed on GitHub
+under CC0-1.0 and may be used without waiting for MoonBack Web publication.
+MoonBack Web routes are not implemented; adding them requires a separate
+supervisor review and does not change the CC0 dedication.
