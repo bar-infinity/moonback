@@ -1,0 +1,551 @@
+{
+  "schema_version": "1.0",
+  "dataset_id": "luna-tools-csv-test-cases",
+  "version": "0.1.0",
+  "title": "LUNA Tools / CSV Test Cases",
+  "language": "en",
+  "created_on": "2026-11-03",
+  "publication_status": {
+    "github_distribution": "available_under_cc0_1_0",
+    "moonback_web_route": "not_implemented"
+  },
+  "license": {
+    "spdx_id": "CC0-1.0",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "provenance": {
+    "creator": "MoonBack / LUNA Tools",
+    "data_origin": "Original, hand-authored synthetic item records. No real people, organizations, customer data or external datasets.",
+    "references": [
+      {
+        "id": "rfc4180",
+        "url": "https://www.rfc-editor.org/rfc/rfc4180",
+        "role": "Informational reference for comma-separated record layout and quoting; not a copied data source."
+      },
+      {
+        "id": "python-csv",
+        "url": "https://docs.python.org/3.9/library/csv.html",
+        "role": "Reference parser API and newline handling; no external code or data copied."
+      }
+    ]
+  },
+  "profile": {
+    "id": "luna-csv-comma-utf8-v1",
+    "encoding": "utf-8",
+    "bom": false,
+    "record_separator": "CRLF",
+    "final_record_separator": true,
+    "scope": "RFC 4180-style record layout and quoting with an explicit UTF-8 extension. Not a claim of full RFC 4180 ABNF conformance or universal parser behavior.",
+    "reference_parser": {
+      "implementation": "Python standard library csv.reader",
+      "python_minimum": "3.9",
+      "open_newline": "",
+      "delimiter": ",",
+      "quotechar": "\"",
+      "doublequote": true,
+      "escapechar": null,
+      "skipinitialspace": false,
+      "strict": true,
+      "quoting": "QUOTE_MINIMAL"
+    },
+    "structure": {
+      "header": [
+        "record_id",
+        "label",
+        "quantity"
+      ],
+      "field_count": 3
+    },
+    "business_rules": {
+      "record_id": {
+        "required": true,
+        "pattern": "T[0-9]{3}",
+        "unique": true
+      },
+      "label": {
+        "required": true,
+        "blank_definition": "empty or whitespace-only"
+      },
+      "quantity": {
+        "required": true,
+        "pattern": "0|[1-9][0-9]*",
+        "meaning": "ASCII nonnegative integer text; no sign, decimal point, grouping or leading zeros except zero itself."
+      }
+    },
+    "pipeline": [
+      "utf8_decode",
+      "csv_parse",
+      "record_structure",
+      "business_quality"
+    ],
+    "issue_location": "1-based logical record number, including the header as record 1; not a physical line number.",
+    "evaluation_policy": "Do not evaluate structure or quality after parse failure. Do not evaluate business quality after structure failure. No stripping, repairing, filling or type conversion."
+  },
+  "cases": [
+    {
+      "id": "csv-001",
+      "file": "samples/csv-001-basic-records.csv",
+      "name": "Basic records",
+      "classification": "valid",
+      "purpose": "A small baseline with two fictional inventory records.",
+      "features": [
+        "baseline",
+        "header",
+        "integer-as-text"
+      ],
+      "profile_id": "luna-csv-comma-utf8-v1",
+      "byte_length": 70,
+      "sha256": "c05784afee038569d230b67ec022d326ec79d8750eeb30a52048d8d32feb04f9",
+      "expected": {
+        "decode": "success",
+        "parse": {
+          "outcome": "success",
+          "error_category": null,
+          "rows": [
+            [
+              "record_id",
+              "label",
+              "quantity"
+            ],
+            [
+              "T001",
+              "Sample item A",
+              "3"
+            ],
+            [
+              "T002",
+              "Sample item B",
+              "0"
+            ]
+          ],
+          "data_record_count": 2
+        },
+        "structure": {
+          "outcome": "pass",
+          "issues": []
+        },
+        "quality": {
+          "outcome": "pass",
+          "issues": []
+        }
+      }
+    },
+    {
+      "id": "csv-002",
+      "file": "samples/csv-002-quoted-comma.csv",
+      "name": "Quoted comma",
+      "classification": "valid",
+      "purpose": "A comma inside a quoted label must remain in one field.",
+      "features": [
+        "quoted-field",
+        "embedded-comma"
+      ],
+      "profile_id": "luna-csv-comma-utf8-v1",
+      "byte_length": 57,
+      "sha256": "cfe5d5c5a5a42ac509c85b0e308fdfc7e5b3688509b4fea2b3b69b823463a1f7",
+      "expected": {
+        "decode": "success",
+        "parse": {
+          "outcome": "success",
+          "error_category": null,
+          "rows": [
+            [
+              "record_id",
+              "label",
+              "quantity"
+            ],
+            [
+              "T001",
+              "Sample item, compact",
+              "3"
+            ]
+          ],
+          "data_record_count": 1
+        },
+        "structure": {
+          "outcome": "pass",
+          "issues": []
+        },
+        "quality": {
+          "outcome": "pass",
+          "issues": []
+        }
+      }
+    },
+    {
+      "id": "csv-003",
+      "file": "samples/csv-003-escaped-quotes.csv",
+      "name": "Doubled double quotes",
+      "classification": "valid",
+      "purpose": "Two double quotes inside a quoted field represent one literal double quote.",
+      "features": [
+        "quoted-field",
+        "escaped-quote"
+      ],
+      "profile_id": "luna-csv-comma-utf8-v1",
+      "byte_length": 54,
+      "sha256": "2b05d1e05bf424371e322b0afe3eeeee8c19e6ec2b6739246243a189d2669f01",
+      "expected": {
+        "decode": "success",
+        "parse": {
+          "outcome": "success",
+          "error_category": null,
+          "rows": [
+            [
+              "record_id",
+              "label",
+              "quantity"
+            ],
+            [
+              "T001",
+              "Sample item \"A\"",
+              "3"
+            ]
+          ],
+          "data_record_count": 1
+        },
+        "structure": {
+          "outcome": "pass",
+          "issues": []
+        },
+        "quality": {
+          "outcome": "pass",
+          "issues": []
+        }
+      }
+    },
+    {
+      "id": "csv-004",
+      "file": "samples/csv-004-multiline-field.csv",
+      "name": "Embedded CRLF",
+      "classification": "valid",
+      "purpose": "A quoted label spans two physical lines but remains one logical record.",
+      "features": [
+        "quoted-field",
+        "embedded-crlf",
+        "logical-record"
+      ],
+      "profile_id": "luna-csv-comma-utf8-v1",
+      "byte_length": 61,
+      "sha256": "c1a75830657858fd38770df079459a4bdf229ca2736d76270987cc143f8f9b07",
+      "expected": {
+        "decode": "success",
+        "parse": {
+          "outcome": "success",
+          "error_category": null,
+          "rows": [
+            [
+              "record_id",
+              "label",
+              "quantity"
+            ],
+            [
+              "T001",
+              "Sample item\r\nsecond line",
+              "3"
+            ]
+          ],
+          "data_record_count": 1
+        },
+        "structure": {
+          "outcome": "pass",
+          "issues": []
+        },
+        "quality": {
+          "outcome": "pass",
+          "issues": []
+        }
+      }
+    },
+    {
+      "id": "csv-005",
+      "file": "samples/csv-005-utf8-labels.csv",
+      "name": "UTF-8 labels",
+      "classification": "valid",
+      "purpose": "Invented item labels exercise non-ASCII decoding under this UTF-8 profile.",
+      "features": [
+        "utf-8",
+        "non-ascii"
+      ],
+      "profile_id": "luna-csv-comma-utf8-v1",
+      "byte_length": 90,
+      "sha256": "b5c0b745659f6889a6abb0c31bbe013deaa2d368fac56c550b3470f8cf4939a9",
+      "expected": {
+        "decode": "success",
+        "parse": {
+          "outcome": "success",
+          "error_category": null,
+          "rows": [
+            [
+              "record_id",
+              "label",
+              "quantity"
+            ],
+            [
+              "T001",
+              "試作部品",
+              "3"
+            ],
+            [
+              "T002",
+              "Δοκιμή",
+              "2"
+            ],
+            [
+              "T003",
+              "Pièce-école",
+              "1"
+            ]
+          ],
+          "data_record_count": 3
+        },
+        "structure": {
+          "outcome": "pass",
+          "issues": []
+        },
+        "quality": {
+          "outcome": "pass",
+          "issues": []
+        }
+      }
+    },
+    {
+      "id": "csv-006",
+      "file": "samples/csv-006-unclosed-quote.csv",
+      "name": "Unclosed quoted field",
+      "classification": "syntax_error",
+      "purpose": "The final quoted field never closes; strict parsing must fail at EOF.",
+      "features": [
+        "unclosed-quote",
+        "unexpected-eof"
+      ],
+      "profile_id": "luna-csv-comma-utf8-v1",
+      "byte_length": 47,
+      "sha256": "1cde9da2ccccf1cd443c062498d1eea85fe3a33c11d877b11b777d7635152cbd",
+      "expected": {
+        "decode": "success",
+        "parse": {
+          "outcome": "error",
+          "error_category": "csv.Error",
+          "rows": null,
+          "data_record_count": null
+        },
+        "structure": {
+          "outcome": "not_evaluated",
+          "issues": []
+        },
+        "quality": {
+          "outcome": "not_evaluated",
+          "issues": []
+        }
+      }
+    },
+    {
+      "id": "csv-007",
+      "file": "samples/csv-007-text-after-quote.csv",
+      "name": "Text after closing quote",
+      "classification": "syntax_error",
+      "purpose": "A non-delimiter immediately follows a closing quote; strict parsing must fail.",
+      "features": [
+        "closing-quote",
+        "unexpected-character"
+      ],
+      "profile_id": "luna-csv-comma-utf8-v1",
+      "byte_length": 49,
+      "sha256": "9e57dc136d89667f63b6101709da3ebb6a3416750ed92d468f1db04182cc960c",
+      "expected": {
+        "decode": "success",
+        "parse": {
+          "outcome": "error",
+          "error_category": "csv.Error",
+          "rows": null,
+          "data_record_count": null
+        },
+        "structure": {
+          "outcome": "not_evaluated",
+          "issues": []
+        },
+        "quality": {
+          "outcome": "not_evaluated",
+          "issues": []
+        }
+      }
+    },
+    {
+      "id": "csv-008",
+      "file": "samples/csv-008-uneven-field-count.csv",
+      "name": "Uneven field count",
+      "classification": "data_quality",
+      "purpose": "Parsing succeeds, but a data record has fewer fields than the header.",
+      "features": [
+        "record-shape",
+        "missing-field"
+      ],
+      "profile_id": "luna-csv-comma-utf8-v1",
+      "byte_length": 68,
+      "sha256": "802f9033dbc8130a210e1bc5b0d3b6929b00311d7811cdaa84e94eca2ffa364b",
+      "expected": {
+        "decode": "success",
+        "parse": {
+          "outcome": "success",
+          "error_category": null,
+          "rows": [
+            [
+              "record_id",
+              "label",
+              "quantity"
+            ],
+            [
+              "T001",
+              "Sample item A",
+              "3"
+            ],
+            [
+              "T002",
+              "Sample item B"
+            ]
+          ],
+          "data_record_count": 2
+        },
+        "structure": {
+          "outcome": "fail",
+          "issues": [
+            {
+              "record": 3,
+              "code": "field_count",
+              "expected": 3,
+              "actual": 2
+            }
+          ]
+        },
+        "quality": {
+          "outcome": "not_evaluated",
+          "issues": []
+        }
+      }
+    },
+    {
+      "id": "csv-009",
+      "file": "samples/csv-009-duplicate-record-id.csv",
+      "name": "Duplicate record ID",
+      "classification": "data_quality",
+      "purpose": "Two syntactically valid records violate the declared unique-ID business rule.",
+      "features": [
+        "business-rule",
+        "duplicate-id"
+      ],
+      "profile_id": "luna-csv-comma-utf8-v1",
+      "byte_length": 70,
+      "sha256": "7b0af82b944d3156e2daa93729fa400e26cbcfa0c6355cbe7477ed4792103d4f",
+      "expected": {
+        "decode": "success",
+        "parse": {
+          "outcome": "success",
+          "error_category": null,
+          "rows": [
+            [
+              "record_id",
+              "label",
+              "quantity"
+            ],
+            [
+              "T001",
+              "Sample item A",
+              "3"
+            ],
+            [
+              "T001",
+              "Sample item B",
+              "2"
+            ]
+          ],
+          "data_record_count": 2
+        },
+        "structure": {
+          "outcome": "pass",
+          "issues": []
+        },
+        "quality": {
+          "outcome": "fail",
+          "issues": [
+            {
+              "record": 3,
+              "column": "record_id",
+              "code": "duplicate_id"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "csv-010",
+      "file": "samples/csv-010-invalid-business-values.csv",
+      "name": "Missing and invalid business values",
+      "classification": "data_quality",
+      "purpose": "An empty label and negative or nonnumeric quantities violate declared business rules, not CSV quoting syntax.",
+      "features": [
+        "business-rule",
+        "required-value",
+        "integer-format",
+        "nonnegative"
+      ],
+      "profile_id": "luna-csv-comma-utf8-v1",
+      "byte_length": 84,
+      "sha256": "fbf21730f4f54f5c86b05baed78ba753d547349430a479b992fbf50934937865",
+      "expected": {
+        "decode": "success",
+        "parse": {
+          "outcome": "success",
+          "error_category": null,
+          "rows": [
+            [
+              "record_id",
+              "label",
+              "quantity"
+            ],
+            [
+              "T001",
+              "",
+              "3"
+            ],
+            [
+              "T002",
+              "Sample item B",
+              "-1"
+            ],
+            [
+              "T003",
+              "Sample item C",
+              "three"
+            ]
+          ],
+          "data_record_count": 3
+        },
+        "structure": {
+          "outcome": "pass",
+          "issues": []
+        },
+        "quality": {
+          "outcome": "fail",
+          "issues": [
+            {
+              "record": 2,
+              "column": "label",
+              "code": "required_value"
+            },
+            {
+              "record": 3,
+              "column": "quantity",
+              "code": "nonnegative_integer"
+            },
+            {
+              "record": 4,
+              "column": "quantity",
+              "code": "nonnegative_integer"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

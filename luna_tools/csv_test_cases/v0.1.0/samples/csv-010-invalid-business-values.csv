@@ -1,0 +1,4 @@
+record_id,label,quantity
+T001,,3
+T002,Sample item B,-1
+T003,Sample item C,three
