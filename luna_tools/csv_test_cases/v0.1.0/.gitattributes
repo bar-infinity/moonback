@@ -1,0 +1,2 @@
+# Byte-level fixtures: preserve CRLF and malformed content on every checkout.
+samples/*.csv -text whitespace=cr-at-eol
