@@ -1,6 +1,6 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote_to_bytes, urlparse
 from datetime import datetime, timezone
 import ipaddress, json, re, os, threading, time
 from content import (FileStore, render_page, render_sitemap, validate,
@@ -23,6 +23,39 @@ MAX_RESPONSE_BODY = 8 * 1024
 MAX_RESPONSE_DRAFTS = 1000
 RESPONSE_STATUS_CACHE_SECONDS = 30
 RESPONSE_RATE_LIMITER = LocalResponseRateLimiter()
+TRACKING_KEYS = frozenset((
+    'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
+    'gclid', 'fbclid',
+))
+MAX_TRACKING_QUERY = 2048
+MAX_TRACKING_VALUE = 512
+TRACKING_VALUE = re.compile(r'(?:[A-Za-z0-9._~+\-]|%(?![01][0-9a-fA-F]|7[fF])[0-9a-fA-F]{2})+')
+
+
+def public_tracking_target(raw_target, path):
+    """Match the literal path and discard tracking values after validation."""
+    raw_path, separator, query = raw_target.partition('?')
+    if raw_path != path:
+        return False
+    if not separator:
+        return True
+    if not query or len(query) > MAX_TRACKING_QUERY:
+        return False
+    fields = query.split('&')
+    if len(fields) > len(TRACKING_KEYS):
+        return False
+    seen = set()
+    for field in fields:
+        key, equals, value = field.partition('=')
+        if (key not in TRACKING_KEYS or key in seen or not equals or
+                len(value) > MAX_TRACKING_VALUE or not TRACKING_VALUE.fullmatch(value)):
+            return False
+        try:
+            unquote_to_bytes(value).decode('utf-8', errors='strict')
+        except UnicodeDecodeError:
+            return False
+        seen.add(key)
+    return True
 
 
 class DuplicateJSONKey(ValueError):
@@ -137,6 +170,16 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         self.serve(head=False)
+
+    def log_request(self, code='-', size='-'):
+        # The default HTTP access log includes the raw request line. Drop the
+        # query there too; the Observe JSONL already records only the path.
+        parts = self.requestline.split()
+        if len(parts) >= 2 and '?' in parts[1]:
+            parts[1] = parts[1].partition('?')[0]
+            self.log_message('"%s" %s %s', ' '.join(parts), getattr(code, 'value', code), size)
+        else:
+            super().log_request(code, size)
 
     def do_POST(self):
         self.receive_response()
@@ -272,23 +315,21 @@ class Handler(SimpleHTTPRequestHandler):
 
         # An allowlist prevents drafts, logs, backups and source files leaking.
         detail = re.fullmatch(r'/(archive|journal)/(' + CONTENT_ID + r')', path)
-        # Detail and verification routes have one literal spelling: no encoded IDs, extra
-        # segments, parameters, query or fragment aliases. Existing routes keep
-        # their prior behavior, including observation logging above.
         raw_target = self.requestline.split()[1]
-        if path in tools_web.ROUTES:
-            if raw_target != path:
+        if (path in tools_web.ROUTES or detail or path in ('/archive', '/journal')):
+            if not public_tracking_target(raw_target, path):
                 self.send_error(404)
                 return
+        if path == '/google1c6ec0bf65f9cfd3.html' and raw_target != path:
+            self.send_error(404)
+            return
+        if path in tools_web.ROUTES:
             try:
                 payload, mime, attachment = tools_web.serve_asset(path, PUBLIC_ORIGIN)
             except tools_web.DATASET_ERRORS:
                 self.send_error(503, 'Tools dataset unavailable')
                 return
             self.send_payload(payload, mime, head, attachment=attachment)
-            return
-        if (detail or path == '/google1c6ec0bf65f9cfd3.html') and raw_target != path:
-            self.send_error(404)
             return
         if path not in self.PUBLIC_FILES and path not in ("/archive", "/journal") and not detail:
             self.send_error(404)

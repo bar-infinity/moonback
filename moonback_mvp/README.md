@@ -284,6 +284,26 @@ pages, the manifest, all ten downloads and sitemap before declaring a
 deployment ready. `llms.txt` links to the Tools index; `agent.json` stays
 focused on the existing discovery trail and API.
 
+### GEO-005A tracking query compatibility
+
+Archive and Journal lists and published detail URLs, and the exact LUNA Tools
+HTML/JSON/CSV URLs, accept optional tracking keys: `utm_source`, `utm_medium`,
+`utm_campaign`, `utm_content`, `utm_term`, `gclid`, and `fbclid`. Each key
+may occur once. The query is limited to seven pairs and 2,048 characters,
+and each nonempty value to 512 characters in its raw URL spelling. Values
+allow ASCII letters, digits, `._~+-`, and well-formed percent escapes except
+ASCII control bytes; escaped values must decode as valid UTF-8. Keys and
+paths are matched literally; unknown keys,
+malformed queries, fragments and path aliases return 404 on these routes.
+
+Accepted values are discarded; they do not affect the body, headers,
+canonical URLs or sitemap. Observe still records one path-only event per
+request (including HEAD and rejected requests, as before), with no extra
+redirect or request. The app's standard HTTP access log also strips the query
+from the request target. This does not configure logs outside the app, such
+as hosting proxies. Other routes retain their existing query policy,
+including strict Google ownership verification and API checks.
+
 ### Tests and remaining checks
 
 ```bash
