@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
 from response_store import FileResponseStore
+from tools_web import available_pages
 
 ROOT = Path(__file__).resolve().parent
 KINDS = ('archive', 'journal')
@@ -135,6 +136,9 @@ def render_sitemap(store=None):
             node = ET.SubElement(root, '{' + namespace + '}url')
             ET.SubElement(node, '{' + namespace + '}loc').text = (
                 PUBLIC_ORIGIN + '/' + kind + '/' + row['id'])
+    for path in available_pages():
+        node = ET.SubElement(root, '{' + namespace + '}url')
+        ET.SubElement(node, '{' + namespace + '}loc').text = PUBLIC_ORIGIN + path
     return ET.tostring(root, encoding='utf-8', xml_declaration=True,
                        default_namespace=namespace)
 

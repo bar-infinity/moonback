@@ -4,7 +4,7 @@ Version: **0.1.0** · Metadata schema: **1.0** · Created: **2026-11-03**
 
 This is a prototype of ten small, synthetic CSV fixtures for humans and
 AI agents testing CSV ingestion. It is distributed on GitHub under CC0-1.0 and
-can be used from the repository. MoonBack Web routes are not implemented.
+can be used from the repository. MoonBack Web routes are available when deployed.
 It is a test corpus, not an upload service, converter, repair tool,
 production validator, or replacement for any paid product.
 
@@ -118,7 +118,7 @@ is made. Do not imply endorsement by MoonBack, LUNA Tools, the IETF or Python.
 
 The license does not relicense the surrounding MoonBack repository, referenced
 documents or any paid product. GitHub distribution under CC0-1.0 does not depend
-on MoonBack Web publication. Adding MoonBack Web routes requires a separate
+on MoonBack Web publication. Deploying MoonBack Web routes requires a separate
 supervisor review; Archive/Journal publication approvals remain unchanged.
 
 ## Extension and future publication
@@ -134,10 +134,10 @@ Specify each profile and its stage outcomes; never label a dialect difference
 or domain-specific rule a universal CSV error. Review spreadsheet-formula risks
 separately before introducing formula-like strings; no such cases are included.
 
-A future versioned URL could be `/tools/csv-test-cases/v0.1.0/`, with `cases.json`
+The versioned Web URL is `/tools/csv-test-cases/v0.1.0/`, with `cases.json`
 and `samples/{filename}.csv` beneath it. Serve JSON as `application/json` and CSV
 as `text/csv; charset=utf-8` with attachment download and `nosniff` headers;
 do not interpret fixture content as HTML or add upload/execution features.
-No MoonBack Web route, sitemap entry, `agent.json` entry or website deployment
-has been added for this dataset. This does not restrict its use from GitHub
-under CC0-1.0.
+The manifest describes route availability when the matching code and dataset are
+deployed together, not the state of any live host. GitHub use under CC0-1.0
+is independent of website deployment.

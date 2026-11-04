@@ -81,6 +81,7 @@ class SearchFoundationTests(unittest.TestCase):
         for kind in content.KINDS:
             expected.extend(PUBLIC_ORIGIN + '/' + kind + '/' + row['id']
                             for row in content.FileStore().read('published', kind))
+        expected.extend(PUBLIC_ORIGIN + path for path in ('/tools/', '/tools/csv-test-cases/v0.1.0/'))
         self.assertEqual(urls, expected)
         self.assertEqual(len(urls), len(set(urls)))
         self.assertNotIn(b'example.com', body)
