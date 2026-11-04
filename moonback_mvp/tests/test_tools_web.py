@@ -176,18 +176,25 @@ class ToolsWebTests(unittest.TestCase):
             sample.symlink_to(hidden)
             self.assertEqual(self.request(tools_web.MANIFEST_PATH)[0], 503)
 
-    def test_sitemap_preserves_original_eight_and_lists_only_two_tools_pages(self):
+    def test_sitemap_preserves_published_urls_and_lists_only_two_tools_pages(self):
+        store = server.FileStore()
+        public_paths = ['/', '/archive', '/journal']
+        for kind in ('archive', 'journal'):
+            public_paths.extend(f'/{kind}/{row["id"]}'
+                                for row in store.read('published', kind))
+        public_urls = [server.PUBLIC_ORIGIN + path for path in public_paths]
+        tools_urls = [server.PUBLIC_ORIGIN + path for path in
+                      ('/tools/', '/tools/csv-test-cases/v0.1.0/')]
         code, _, body = self.request('/sitemap.xml')
         self.assertEqual(code, 200)
         urls = [node.text for node in ET.fromstring(body).iter(
             '{http://www.sitemaps.org/schemas/sitemap/0.9}loc')]
-        self.assertEqual(len(urls), 10)
-        self.assertEqual([url for url in urls if '/tools/' in url],
-                         [server.PUBLIC_ORIGIN + path for path in tools_web.TOOL_PAGES])
+        self.assertCountEqual(urls, public_urls + tools_urls)
         with patch('tools_web.DATASET', self.root / 'missing'):
-            previous = self.request('/sitemap.xml')[2]
-        self.assertEqual([node.text for node in ET.fromstring(previous).iter(
-            '{http://www.sitemaps.org/schemas/sitemap/0.9}loc')], urls[:8])
+            code, _, previous = self.request('/sitemap.xml')
+        self.assertEqual(code, 200)
+        self.assertCountEqual([node.text for node in ET.fromstring(previous).iter(
+            '{http://www.sitemaps.org/schemas/sitemap/0.9}loc')], public_urls)
 
 
 if __name__ == '__main__':
