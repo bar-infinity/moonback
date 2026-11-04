@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
+from navigation import render_navigation
 from response_store import FileResponseStore
 from tools_web import available_pages
 
@@ -160,10 +161,10 @@ def render_page(kind, store=None, response_store=None, *, ident=None):
             raise PublishedItemNotFound()
     heading = title
     page_title = 'MoonBack / ' + title
-    canonical = PUBLIC_ORIGIN + '/' + kind
+    path = '/' + kind + ('/' + ident if ident is not None else '')
+    canonical = PUBLIC_ORIGIN + path
     if ident is not None:
         row = rows[0]
-        canonical += '/' + ident
         if kind == 'archive':
             heading = row['name']
             page_title = row['name'] + ' / AI/Web Archive / ' + ident + ' / MoonBack'
@@ -206,4 +207,4 @@ def render_page(kind, store=None, response_store=None, *, ident=None):
             date_heading = ('<h2><a href="' + item_path + '">' + date_text + '</a></h2>') if ident is None else '<p>' + date_text + '</p>'
             articles.append('<article data-journal-id="' + escape(row['id'], quote=True) + '">' + date_heading + '<p class="entry">' + escape(row['text']) + '</p><p>' + sources + '</p>' + response_section + '</article>')
     body = ''.join(articles) or '<p>No published records yet.</p>'
-    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + escape(page_title) + '</title><meta name="description" content="' + escape(description, quote=True) + '"><link rel="canonical" href="' + escape(canonical, quote=True) + '"><style>body{background:#000;color:#eee;font-family:ui-monospace,monospace;max-width:760px;margin:48px auto;padding:0 20px;line-height:1.8;overflow-wrap:anywhere}h1{font-size:20px}h2{font-size:17px}h3{font-size:15px}a{color:inherit}article{margin:48px 0}.entry{white-space:pre-wrap}.responses{margin-top:32px}.response{margin:24px 0}.agent{font-size:13px}nav{font-size:13px}</style><nav><a href="/archive">Archive</a> · <a href="/journal">Journal</a></nav><h1>' + escape(heading) + '</h1>' + body + '</html>').encode('utf-8')
+    return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + escape(page_title) + '</title><meta name="description" content="' + escape(description, quote=True) + '"><link rel="canonical" href="' + escape(canonical, quote=True) + '"><style>body{background:#000;color:#eee;font-family:ui-monospace,monospace;max-width:760px;margin:48px auto;padding:0 20px;line-height:1.8;overflow-wrap:anywhere}h1{font-size:20px}h2{font-size:17px}h3{font-size:15px}a{color:inherit}article{margin:48px 0}.entry{white-space:pre-wrap}.responses{margin-top:32px}.response{margin:24px 0}.agent{font-size:13px}nav{font-size:13px}nav a[aria-current]{font-weight:bold}</style>' + render_navigation(path) + '<h1>' + escape(heading) + '</h1>' + body + '</html>').encode('utf-8')
