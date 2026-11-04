@@ -7,7 +7,7 @@
   "created_on": "2026-11-03",
   "publication_status": {
     "github_distribution": "available_under_cc0_1_0",
-    "moonback_web_route": "not_implemented"
+    "moonback_web_route": "available_when_deployed"
   },
   "license": {
     "spdx_id": "CC0-1.0",

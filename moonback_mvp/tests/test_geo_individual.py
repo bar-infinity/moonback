@@ -188,7 +188,8 @@ class IndividualPageTests(unittest.TestCase):
         self.store.save('drafts', 'journal', dict(self.journal, id='draft-only'))
         urls = self.sitemap_urls()
         self.assertEqual(urls, [content.PUBLIC_ORIGIN + path for path in
-                               ('/', '/archive', '/journal', '/archive/archive-001', '/journal/journal-001')])
+                               ('/', '/archive', '/journal', '/archive/archive-001', '/journal/journal-001',
+                                '/tools/', '/tools/csv-test-cases/v0.1.0/')])
         self.assertEqual(len(urls), len(set(urls)))
         for url in urls:
             self.assertEqual(self.request(url.removeprefix(content.PUBLIC_ORIGIN))[0], 200)
@@ -210,7 +211,7 @@ class IndividualPageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             empty = content.FileStore(directory)
             root = ET.fromstring(content.render_sitemap(empty))
-            self.assertEqual(len(root), 3)
+            self.assertEqual(len(root), 5)
             for kind in content.KINDS:
                 self.assertIn(b'No published records yet.', content.render_page(kind, empty))
                 with self.assertRaises(content.PublishedItemNotFound):

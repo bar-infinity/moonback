@@ -4,7 +4,8 @@ from urllib.parse import urlparse
 from datetime import datetime, timezone
 import ipaddress, json, re, os, threading, time
 from content import (FileStore, render_page, render_sitemap, validate,
-                     CONTENT_ID, PublishedItemNotFound)
+                     CONTENT_ID, PUBLIC_ORIGIN, PublishedItemNotFound)
+import tools_web
 from response import ResponseValidationError, build_draft_response
 from response_store import (
     CloudflareResponseStore, CloudflareStoreError, FileResponseStore,
@@ -275,6 +276,17 @@ class Handler(SimpleHTTPRequestHandler):
         # segments, parameters, query or fragment aliases. Existing routes keep
         # their prior behavior, including observation logging above.
         raw_target = self.requestline.split()[1]
+        if path in tools_web.ROUTES:
+            if raw_target != path:
+                self.send_error(404)
+                return
+            try:
+                payload, mime, attachment = tools_web.serve_asset(path, PUBLIC_ORIGIN)
+            except tools_web.DATASET_ERRORS:
+                self.send_error(503, 'Tools dataset unavailable')
+                return
+            self.send_payload(payload, mime, head, attachment=attachment)
+            return
         if (detail or path == '/google1c6ec0bf65f9cfd3.html') and raw_target != path:
             self.send_error(404)
             return
@@ -305,12 +317,14 @@ class Handler(SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 
-    def send_payload(self, payload, content_type, head=False):
+    def send_payload(self, payload, content_type, head=False, *, attachment=None):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        if attachment is not None:
+            self.send_header('Content-Disposition', f'attachment; filename="{attachment}"')
         self.end_headers()
         if not head:
             self.wfile.write(payload)

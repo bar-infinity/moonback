@@ -188,7 +188,8 @@ have not been accessed or verified.
 
 `agent.json` and `llms.txt` now advertise `/archive` and `/journal`.
 The sitemap uses the approved public origin `https://moonback-jbz0.onrender.com`
-and lists `/`, `/archive`, and `/journal` plus published individual records.
+and lists `/`, `/archive`, and `/journal` plus published individual records and
+available Tools pages.
 `robots.txt` keeps `User-agent: *` / `Allow: /` and advertises the absolute sitemap
 URL. The checked-in XML remains the three-page base template; GEO-002 extends it
 at request time using validated published records, as described below.
@@ -254,6 +255,34 @@ sitemap. There are no dependencies, background generators, invented timestamps
 or deployment changes. Directly reading the XML file yields the base template;
 the HTTP endpoint is the complete sitemap. Tests cover the expanded route set,
 metadata, traversal/alias rejection, sitemap parity and published responses.
+
+### GEO-004B LUNA Tools
+
+The read-only Tools index at `/tools/` links to
+`/tools/csv-test-cases/v0.1.0/`. The dataset page links to `cases.json` and
+the ten fixed files under its `samples/` path. GET and HEAD use the same
+metadata; CSV is served as an attachment with its original bytes.
+The manifest's `available_when_deployed` status describes code and data shipped
+together, not the state of production. GitHub distribution under CC0-1.0 is
+independent of the website.
+
+Run `python3 moonback_mvp/server.py` from the repository root, or run
+`python3 server.py` inside `moonback_mvp` **in a full checkout**. The app
+reads the existing dataset from the sibling
+`luna_tools/csv_test_cases/v0.1.0/` directory; do not copy or publish the
+entire repository as a static site. If Render has Root Directory set to
+`moonback_mvp`, switch it to the repository root (blank) and use
+`python3 moonback_mvp/server.py` after release approval. Review any build
+commands or filters that depended on the previous root, and include both
+application and dataset paths in deployment triggers. Keep `PORT` and
+existing environment settings. No additional build dependencies are needed.
+
+The app fails closed with 503 on Tools routes if the dataset is unavailable
+or its inventory/bytes fail verification. In that state the sitemap omits
+the two Tools URLs and keeps the Archive/Journal URLs. Check both Tools
+pages, the manifest, all ten downloads and sitemap before declaring a
+deployment ready. `llms.txt` links to the Tools index; `agent.json` stays
+focused on the existing discovery trail and API.
 
 ### Tests and remaining checks
 

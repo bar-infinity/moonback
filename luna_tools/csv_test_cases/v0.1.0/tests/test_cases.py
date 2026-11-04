@@ -82,7 +82,7 @@ class CSVCorpusTests(unittest.TestCase):
         self.assertEqual(self.manifest['version'], ROOT.name[1:])
         self.assertEqual(self.manifest['publication_status'], {
             'github_distribution': 'available_under_cc0_1_0',
-            'moonback_web_route': 'not_implemented',
+            'moonback_web_route': 'available_when_deployed',
         })
         self.assertEqual(self.manifest['language'], 'en')
         self.assertEqual(self.manifest['license']['spdx_id'], 'CC0-1.0')
@@ -95,7 +95,7 @@ class CSVCorpusTests(unittest.TestCase):
             text = (ROOT / filename).read_text()
             self.assertIn('CC0-1.0', text)
             self.assertIn('distributed on GitHub', text)
-            self.assertIn('MoonBack Web routes are not implemented', text)
+            self.assertIn('MoonBack Web routes are available when deployed', text)
             self.assertNotIn('unpublished local prototype', text)
 
     def test_manifest_has_exactly_ten_unique_cases_and_no_orphan_csv(self):
