@@ -4,6 +4,8 @@ import json
 from html import escape
 from pathlib import Path
 
+from navigation import render_navigation
+
 DATASET = Path(__file__).resolve().parent.parent / 'luna_tools/csv_test_cases/v0.1.0'
 TOOLS_PATH = '/tools/'
 DATASET_PATH = TOOLS_PATH + 'csv-test-cases/v0.1.0/'
@@ -72,7 +74,7 @@ def available_pages():
     return TOOL_PAGES
 
 
-def _page(title, description, canonical, body):
+def _page(title, description, canonical, body, *, path):
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -80,9 +82,9 @@ def _page(title, description, canonical, body):
         f'<link rel="canonical" href="{escape(canonical)}">'
         '<style>body{background:#000;color:#eee;font:1rem/1.6 monospace;'
         'max-width:52rem;margin:2rem auto;padding:0 1rem}a{color:#eee}'
-        'li{margin:.75rem 0;overflow-wrap:anywhere}</style></head><body>'
-        '<nav aria-label="Site"><a href="/">MoonBack</a> · '
-        '<a href="/tools/">LUNA Tools</a></nav>'
+        'li{margin:.75rem 0;overflow-wrap:anywhere}'
+        'nav a[aria-current]{font-weight:bold}</style></head><body>'
+        f'{render_navigation(path)}'
         f'<main>{body}</main></body></html>'
     ).encode('utf-8')
 
@@ -133,4 +135,4 @@ def serve_asset(path, origin):
         body += '</ul>'
     else:
         raise ValueError('Unknown Tools route')
-    return _page(title, description, origin + path, body), 'text/html; charset=utf-8', None
+    return _page(title, description, origin + path, body, path=path), 'text/html; charset=utf-8', None
