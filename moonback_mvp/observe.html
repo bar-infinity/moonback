@@ -50,6 +50,7 @@ function formatRecentRequest(x){
 async function refresh(){
       try{
         const r = await fetch('/stats');
+        if (r.ok === false) throw new Error('Observation unavailable');
         const s = await r.json();
         started.textContent = toJST(s.observation_started);
       total.textContent = s.total_requests;

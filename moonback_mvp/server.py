@@ -2,6 +2,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import unquote_to_bytes, urlparse
 from datetime import datetime, timezone
+from collections import deque
 import ipaddress, json, re, os, threading, time
 from content import (FileStore, render_page, render_sitemap, validate,
                      CONTENT_ID, PUBLIC_ORIGIN, PublishedItemNotFound)
@@ -13,7 +14,36 @@ from response_store import (
 )
 
 ROOT = Path(__file__).resolve().parent
-LOG = ROOT / "data" / "requests.jsonl"
+
+
+def observation_log_path():
+    """Resolve trusted startup configuration only; never accept a request path."""
+    value = os.environ.get('MOONBACK_OBSERVATION_LOG_PATH')
+    if value is None:
+        return ROOT / 'data' / 'requests.jsonl'
+    invalid = ValueError('Invalid MOONBACK_OBSERVATION_LOG_PATH configuration')
+    if (not value or value != value.strip() or not value.isprintable()):
+        raise invalid
+    path = Path(value)
+    if not path.is_absolute() or '..' in path.parts or path.suffix != '.jsonl':
+        raise invalid
+    try:
+        resolved = path.resolve()
+        if (path.is_symlink() or (path.exists() and not path.is_file()) or
+                (resolved.is_relative_to(ROOT.parent) and
+                 not resolved.is_relative_to(ROOT / 'data'))):
+            raise invalid
+    except (OSError, RuntimeError):
+        raise invalid from None
+    return path
+
+
+LOG = observation_log_path()
+
+
+class ObservationReadError(OSError):
+    """Fixed diagnostic; never expose a configured local path."""
+
 AGENT_HINTS = (
     "bot", "crawler", "spider", "gpt", "chatgpt", "openai",
     "claude", "anthropic", "gemini", "google-extended", "perplexity",
@@ -130,26 +160,41 @@ def classify_agent(ua: str) -> bool:
     return any(h in u for h in AGENT_HINTS)
 
 def read_stats():
-    rows = []
-    if LOG.exists():
-        for line in LOG.read_text(encoding="utf-8").splitlines():
-            try:
-                rows.append(json.loads(line))
-            except Exception:
-                pass
-    deepest = None
+    recent = deque(maxlen=20)
+    total = agents = 0
+    started = deepest = None
     depth = -1
-    for row in rows:
-        m = re.fullmatch(r"/signal/(\d{3})(?:\.json)?", row.get("path",""))
-        if m and int(m.group(1)) > depth:
-            depth = int(m.group(1))
-            deepest = m.group(1)
+    try:
+        # Stream instead of retaining the entire log. CPU/I/O remain O(file size).
+        with LOG.open('r', encoding='utf-8') as stream:
+            for line in stream:
+                try:
+                    row = json.loads(line)
+                except (ValueError, RecursionError):
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                total += 1
+                if total == 1:
+                    started = row.get('time')
+                agents += bool(row.get('agent_like'))
+                recent.append(row)
+                path = row.get('path', '')
+                m = re.fullmatch(r'/signal/(\d{3})(?:\.json)?', path) if isinstance(path, str) else None
+                if m and int(m.group(1)) > depth:
+                    depth = int(m.group(1))
+                    deepest = m.group(1)
+    except FileNotFoundError:
+        # A new destination has no observations yet; never create/reset on read.
+        pass
+    except (OSError, UnicodeError):
+        raise ObservationReadError('Observation log unavailable') from None
     return {
-        "observation_started": rows[0].get("time") if rows else None,
-        "total_requests": len(rows),
-        "agent_like_requests": sum(1 for r in rows if r.get("agent_like")),
+        "observation_started": started,
+        "total_requests": total,
+        "agent_like_requests": agents,
         "deepest_signal": deepest,
-        "recent": rows[-20:][::-1]
+        "recent": list(reversed(recent))
     }
 
 class Handler(SimpleHTTPRequestHandler):
@@ -211,9 +256,15 @@ class Handler(SimpleHTTPRequestHandler):
             self._observation_active = False
             try:
                 with OBSERVATION_LOG_LOCK:
-                    LOG.parent.mkdir(exist_ok=True)
-                    with LOG.open('a', encoding='utf-8') as stream:
-                        stream.write(json.dumps(entry, ensure_ascii=False) + '\n')
+                    LOG.parent.mkdir(parents=True, exist_ok=True)
+                    with LOG.open('ab+') as stream:
+                        stream.seek(0, os.SEEK_END)
+                        separator = b''
+                        if stream.tell():
+                            stream.seek(-1, os.SEEK_END)
+                            if stream.read(1) != b'\n':
+                                separator = b'\n'
+                        stream.write(separator + json.dumps(entry, ensure_ascii=False).encode('utf-8') + b'\n')
             except (OSError, UnicodeError, ValueError):
                 # Observation failure must never replace a public response or
                 # expose request data through diagnostics.
@@ -346,7 +397,11 @@ class Handler(SimpleHTTPRequestHandler):
             self.serve_response_status(head=head)
             return
         if path == "/stats":
-            payload = json.dumps(read_stats()).encode("utf-8")
+            try:
+                payload = json.dumps(read_stats()).encode("utf-8")
+            except ObservationReadError:
+                self.send_json({'error': 'observation_unavailable'}, status=503, head=head)
+                return
             self.send_payload(payload, "application/json; charset=utf-8", head)
             return
 
