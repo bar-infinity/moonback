@@ -64,9 +64,201 @@ not successful retrievals. Entries are appended in completion order.
 
 Requests blocked before this GET/HEAD handler, unsupported methods, process
 termination before logging, and failed log writes cannot be covered by this log.
-Persistence and cross-process coordination are outside this change.
+Disk provisioning and cross-process coordination are outside this change.
 The Observe display regression tests use the existing Node.js tooling:
 `node --test tests/test_observe_view.cjs` (run from `moonback_mvp`).
+
+### Configurable observation storage (GEO-009A)
+
+`MOONBACK_OBSERVATION_LOG_PATH` is read once at process startup. If unset, the
+destination remains `moonback_mvp/data/requests.jsonl`. A configured value must
+be an absolute `.jsonl` path without control characters or `..`; empty values,
+directories, symlink files and repository locations outside `moonback_mvp/data/`
+are rejected with a fixed startup configuration error. No request can select a
+destination. The same `LOG` path is used for append and statistics.
+
+Missing parent directories are created on the first write. Existing bytes are
+never truncated, rewritten or deleted. A missing final newline is separated
+before the next appended record. Nothing is migrated automatically. Missing
+files yield empty statistics without creating a file. Permission, encoding or
+other read failures return a fixed 503 from `/stats`; Observe shows unavailable,
+not a fabricated empty result. Write errors preserve the public response and
+never fall back to another file. The service user needs read/write permission.
+
+Statistics are streamed with only the latest 20 records retained. Malformed
+JSON/non-object rows are skipped, legacy objects are unchanged, and the total,
+agent-like count and deepest signal cover all valid object rows. Memory no longer
+grows with the number of records, but each poll still scans the file: O(file size)
+CPU/I/O remains. In-flight writes may appear on the next poll. The existing
+process-local append lock remains; multiple writer processes are not supported.
+No rotation, retention deadline, deletion, fsync guarantee or new tracking is added.
+
+#### Proposed Render rollout (manual approval required)
+
+1. **Before any deploy, restart, plan change or disk attachment**, decide whether
+   current ephemeral logs must be retained. If yes, export the full JSONL over an
+   approved private Shell/SSH/SFTP channel, validate its size/hash/record count,
+   and keep a restricted local backup outside Git. `/stats` contains only 20 recent
+   records and is not a backup. If private full-file access is unavailable, stop;
+   do not expose a new public download route. Exporting a live file can leave a
+   gap before the instance stops; lossless cutover needs a separately approved
+   maintenance/tail-capture procedure. This change does not implement one.
+2. Confirm current service plan and charges. Render disks require a paid service;
+   Free cannot attach one. After code review and release approval, provision a
+   disk mounted at `/var/data`. A path setting alone does not prove a disk is
+   mounted and can otherwise write ephemeral data. Verify the actual runtime
+   mount and service-user permissions before switching the path.
+3. Attach the disk with the log variable still unset. Disk attachment triggers a
+   deploy; disk-backed deploys briefly interrupt the single instance. Preserve
+   all other environment/start/root settings. The disk is available at runtime,
+   not build or pre-deploy time. See [Render disks](https://render.com/docs/disks).
+4. If migrating, validate the backup and restore only to a new/empty
+   `/var/data/moonback/requests.jsonl` via private runtime access. If a destination
+   already contains data, stop rather than overwrite or blindly concatenate.
+   Keep both originals; review ordering and duplicate handling separately.
+5. Set only `MOONBACK_OBSERVATION_LOG_PATH=/var/data/moonback/requests.jsonl`,
+   restart/deploy with approval, and confirm `/stats` retains historical counts.
+   Make one labeled public GET/HEAD, verify new records, then confirm preservation
+   across an approved restart. Configuration/read failures must not be interpreted
+   as an empty history. No real disk restart has been tested by this local change.
+6. Before rollback, privately back up the persistent log. Keep the disk attached
+   and untouched. Unsetting the variable returns this code to its old ephemeral
+   path; rolling back to pre-GEO-009A code ignores the variable. Neither copies
+   disk history into that old path. Retain/export disk data before any later disk
+   deletion or plan downgrade; those are separate destructive decisions.
+
+#### Starter cutover checklist (not executed)
+
+Starter is a paid web-service tier. Render documents Shell/SSH support for paid
+web services and SFTP-based `scp -s` transfers. **Actual account SSH-key setup,
+the service's Connect/SSH target, access permissions, root/start command,
+linked branch, Auto-Deploy/preview configuration and runtime mount are unverified.**
+Do not invent a service ID or region, or assume a Shell connection is usable.
+See [SSH setup and service support](https://render.com/docs/ssh),
+[file transfer](https://render.com/docs/disks#transferring-files) and
+[deploy controls](https://render.com/docs/deploys#configuring-auto-deploys).
+
+- Before merging or any restart, privately verify Shell access, the exact running
+  application directory, and `server.LOG` from that directory. Do not print the
+  log body, environment, cookies or credentials. Obtain the exact SSH target from
+  Dashboard Connect > SSH, use an already approved key, and verify the regional
+  host fingerprint against Render documentation. Key registration, if needed,
+  requires separate authorization. Failure here means stop with the instance
+  running; `/stats` cannot substitute for the complete file.
+- With separate change approval, record the current linked branch, Live commit,
+  start command and Auto-Deploy setting; set Auto-Deploy to **Off** before merging,
+  and check that no deploy is queued/running. Stop if an unplanned deploy exists.
+  Coordinate a change freeze with other operators. `[skip render]` is a secondary
+  guard, not protection from disk attachment, restarts, manual deploys or crashes.
+  This PR uses that marker; no actual setting was changed. Review PR-preview
+  configuration separately; current preview behavior was not inspected.
+- In the verified application directory, create a new private snapshot using
+  the example below. It copies the source's initial byte length only, preserves
+  all original bytes, and reports metadata without printing records. Validate
+  that bytes match, JSON errors are zero and the file is complete; otherwise keep
+  both originals and stop before deploying. The snapshot still does not include
+  records appended later. Agree an acceptable gap or separately design a final
+  tail capture; this procedure does not promise zero-loss live migration.
+
+Run on the service **only after explicit authorization**:
+
+```python
+import hashlib, json, os
+from pathlib import Path
+from uuid import uuid4
+import server  # only from the verified running application's directory
+
+try:
+    source = server.LOG
+    snapshot = source.with_name('requests.geo009a-export-' + uuid4().hex + '.jsonl')
+    os.umask(0o077)
+    digest = hashlib.sha256()
+    with source.open('rb') as reader, snapshot.open('xb') as writer:
+        remaining = os.fstat(reader.fileno()).st_size
+        while remaining:
+            chunk = reader.read(min(1024 * 1024, remaining))
+            if not chunk:
+                raise RuntimeError('Snapshot interrupted; retain files and stop')
+            writer.write(chunk)
+            digest.update(chunk)
+            remaining -= len(chunk)
+        writer.flush()
+        os.fsync(writer.fileno())
+    valid = invalid = 0
+    with snapshot.open('r', encoding='utf-8') as reader:
+        for line in reader:
+            try:
+                if not isinstance(json.loads(line), dict):
+                    raise ValueError()
+                valid += 1
+            except (ValueError, RecursionError):
+                invalid += 1
+    print(json.dumps({'snapshot': str(snapshot), 'bytes': snapshot.stat().st_size,
+                      'sha256': digest.hexdigest(), 'valid_rows': valid,
+                      'invalid_rows': invalid}))
+except (OSError, UnicodeError):
+    raise SystemExit('Snapshot unavailable; retain files and stop')
+
+```
+
+On the supervisor's Mac, only after SSH access is verified, create a private
+backup directory outside this repository and any automatic public sync folder
+(`umask 077`, directory 0700, files 0600). Use the exact Dashboard `USER@HOST`
+and verified snapshot path with `scp -s`, for example:
+
+```text
+scp -s 'USER@HOST:/VERIFIED/ABSOLUTE/SNAPSHOT.jsonl' '/PRIVATE/MAC/BACKUP/requests.jsonl'
+shasum -a 256 '/PRIVATE/MAC/BACKUP/requests.jsonl'
+```
+
+These are placeholders, not ready-to-run connection coordinates. Verify the
+local byte length, SHA-256 and JSONL row counts against snapshot metadata without
+printing rows. Do not proceed on mismatch, transfer failure or partial download.
+Mac `ssh`, `scp`, and `sftp` executables were found locally, but authentication,
+server SFTP and a real transfer were not exercised. If the installed client does
+not support `-s`, stop and confirm the supported SFTP invocation before proceeding.
+
+After a verified Mac backup, separately approve disk attachment at `/var/data`
+with the log variable unset (attachment itself redeploys). Verify Live health,
+Dashboard disk attachment, actual runtime mount and permissions; directory
+existence alone is insufficient. A writable wrong/unmounted path silently stores
+ephemeral data; a blocked/unwritable path keeps public pages working but cannot
+record, and read errors yield 503. The app does not detect hosting mount state.
+
+Upload the backup over the verified private transfer channel to a **new unique
+staging name** on the disk, never directly over `requests.jsonl`. Recheck bytes,
+hash and row counts there. Restore with exclusive creation (`open('xb')`) into
+`/var/data/moonback/requests.jsonl`; if that destination already exists, stop and
+preserve it. Set only the new log variable and deploy the reviewed commit after
+approval. If a deploy leaves new observations in the old ephemeral location,
+preserve that file separately before another restart; merging histories needs
+duplicate/order review and is not automated here.
+
+On failure, keep Auto-Deploy Off, both backups and any disk data. Do not fix it by
+deleting a disk or truncating/replacing a file. Before any recovery deploy,
+export newly accumulated ephemeral data if accessible. An existing instance that
+Render has already destroyed cannot be recovered by this code. After mount,
+restore and restart checks succeed, re-enabling Auto-Deploy requires a separate
+decision. No backup, connection, mount, transfer or production setting operation
+in this checklist has been performed.
+
+As checked on 2026-11-05, Render's official guidance includes a 1 GB disk example.
+Use 1 GB as the initial candidate and confirm the minimum accepted size and final
+quote in Dashboard before approval ([example](https://render.com/docs/deploy-prometheus)).
+Official published rates are $0.25/GB/month for disk and paid web instances from
+$7/month: a 1 GB illustration is $0.25 incremental disk cost, or $7.25/month
+combined if upgrading from Free, excluding taxes/other usage. Confirm the current
+plan and estimate on the service's Disk/Billing screens; pricing-page numeric
+tables were not readable in this audit. See [official rate reference](https://render.com/articles/best-netlify-alternatives-in-2026)
+and [pricing](https://render.com/pricing). No billable resources were created.
+For the currently specified **existing Starter** service, the candidate 1 GB disk
+adds about $0.25/month to its existing compute bill; the $7 is not a second new
+service charge. Confirm the actual Disk/Billing quote before approving creation.
+
+For growth, monitor bytes/count/scan time and disk usage, export private verified
+backups, and agree a retention policy before implementing rotation or an
+incremental aggregate. Render daily snapshots are a recovery aid, not a lossless
+per-request backup. No automatic cleanup is enabled here.
 
 ### Content language
 

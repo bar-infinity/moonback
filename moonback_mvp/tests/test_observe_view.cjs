@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const html = readFileSync(join(__dirname, '../observe.html'), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 
-async function render(recent) {
+async function render(recent, ok = true) {
   const node = () => Object.defineProperty({ textContent: '' }, 'innerHTML', {
     set() { throw new Error('HTML rendering prohibited'); },
   });
@@ -15,7 +15,7 @@ async function render(recent) {
     started: node(), total: node(), agents: node(), deepest: node(), recent: node(),
     fetch: async path => {
       assert.equal(path, '/stats');
-      return { json: async () => ({ recent, total_requests: recent.length,
+      return { ok, json: async () => ({ recent, total_requests: recent.length,
         agent_like_requests: 1, deepest_signal: '005' }) };
     },
     setInterval: (_, ms) => assert.equal(ms, 5000),
@@ -32,6 +32,12 @@ test('Observe shows method/status and preserves counts and agent uncertainty', a
   assert.match(view.recent.textContent, /23:20:30 JST  HEAD 200 \/tools\/  \[agent\?\]/);
   assert.equal(view.total.textContent, 1);
   assert.equal(view.deepest.textContent, '005');
+});
+
+test('Observe reports unreadable statistics instead of showing an empty log', async () => {
+  const view = await render([], false);
+  assert.equal(view.recent.textContent, 'Stats unavailable. Run with server.py.');
+  assert.equal(view.total.textContent, '');
 });
 
 test('Observe leaves old and invalid method/status unknown', async () => {
