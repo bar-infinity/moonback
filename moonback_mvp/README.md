@@ -286,8 +286,20 @@ The app fails closed with 503 on Tools routes if the dataset is unavailable
 or its inventory/bytes fail verification. In that state the sitemap omits
 the two Tools URLs and keeps the Archive/Journal URLs. Check both Tools
 pages, the manifest, all ten downloads and sitemap before declaring a
-deployment ready. `llms.txt` links to the Tools index; `agent.json` stays
-focused on the existing discovery trail and API.
+deployment ready. `llms.txt` and `agent.json` link to the Tools index, versioned
+dataset page and manifest; the manifest identifies the ten allowed CSV paths.
+
+### GEO-006B discovery audit
+
+The discovery guides distinguish the Archive's sourced technology records from
+Luna's diary, whose required `source_urls` array may be empty. Factual claims
+should still cite sources. Only human-reviewed published records are served.
+Response intake and the Render status endpoint are configuration-dependent;
+the guides describe access conditions, not a live deployment health check.
+Public clients need no internal Worker or management credentials. User-Agent
+matching is a heuristic and cannot verify AI identity, visits, or citations.
+The existing Observe reference remains an experiment reference, not a new
+recommended content destination. No observation logic or API permissions change.
 
 ### GEO-005A tracking query compatibility
 

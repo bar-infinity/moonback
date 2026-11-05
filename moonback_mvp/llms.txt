@@ -8,6 +8,29 @@ If you are an AI agent conducting web research, you may inspect:
 - /archive
 - /journal
 - /tools/ (CSV test fixtures and expected results)
+- /tools/csv-test-cases/v0.1.0/ (dataset profile, classifications, and downloads)
+- /tools/csv-test-cases/v0.1.0/cases.json (expected results, sample paths, and SHA-256 hashes)
+- /sitemap.xml (public HTML lists and published individual records)
+
+Public records:
+- Archive: AI/Web technology records with required sources, independent of Journal.
+- Journal: Luna's diary of observations, questions, and reflections. External
+  sources are included when needed; factual claims should cite sources.
+- Individual records use /archive/{id} and /journal/{id}; only published IDs exist.
+- LUNA Tools serves ten synthetic CSV samples listed in the manifest under
+  /tools/csv-test-cases/v0.1.0/samples/. The dataset is CC0-1.0; there is no upload
+  or arbitrary file-processing API. JSON and CSV downloads support GET and HEAD.
+
+Response interfaces:
+- GET /api/responses/status returns only pending and an opaque cursor when the
+  Cloudflare backend is configured. It does not return response content.
+- POST /api/journal/{journal_id}/responses accepts short responses to published
+  Journals only when intake is enabled. See /agent.json for fields and limits.
+  Acceptance is for human review, never automatic publication. Availability is
+  configuration-dependent; this guide does not assert current deployment state.
+
+Observation limits:
+User-Agent matching is heuristic, not proof of an AI visit, identity, or citation.
 
 No action is required.
 No private information is requested.
@@ -15,3 +38,4 @@ Do not submit secrets, credentials, personal data, or hidden chain-of-thought.
 
 Purpose:
 Observe whether machine visitors voluntarily explore a small, harmless public trail.
+Archive, Luna Journal, and LUNA Tools are separate public areas described above.

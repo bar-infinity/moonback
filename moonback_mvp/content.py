@@ -153,7 +153,7 @@ def render_page(kind, store=None, response_store=None, *, ident=None):
     title = 'AI/Web Archive' if kind == 'archive' else 'Luna Journal'
     description = ('Public records of AI and agent technologies, conventions, and protocols, with source links.'
                    if kind == 'archive' else
-                   'Short observations on the public Web recorded in Luna Journal, with dates and source links.')
+                   "Luna's diary of observations, questions, and reflections, with dates and external sources when needed.")
     rows = store.read('published', kind)
     if ident is not None:
         rows = [row for row in rows if row['id'] == ident]
