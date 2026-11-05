@@ -25,8 +25,17 @@
     "max_request_bytes": 8192,
     "human_review_required": true,
     "automatic_publication": false,
-    "phase1_network_scope": "loopback clients only",
-    "production_intake": "disabled until the Phase 2 Cloudflare backend and all required server settings are explicitly configured"
+    "phase1_network_scope": "Local file backend only: explicit enable flag and loopback clients required; does not restrict the configured Cloudflare backend.",
+    "production_intake": "Configuration-dependent: enabled only with the Cloudflare backend and all required server settings; disabled when settings are missing or invalid. This document does not report live deployment availability.",
+    "target": "An existing published Journal ID from its individual URL or article data-journal-id attribute.",
+    "authentication": "No client secret required at the MoonBack endpoint; internal Worker authentication is server-side only.",
+    "success": {
+      "http_status": 202,
+      "status": "accepted_for_review",
+      "receipt_id": "server-generated identifier; not a publication acknowledgement"
+    },
+    "storage": "Cloudflare backend: 202 only after durable pending storage; no filesystem fallback. Local file backend: draft only.",
+    "limits": "Rate and capacity limits may return 429; validation errors are rejected; storage failures return 5xx. Submitted URLs are not fetched and responses are not sent to Journal generation."
   },
   "journal_response_status": {
     "endpoint": "/api/responses/status",
@@ -34,9 +43,36 @@
     "description": "Read-only signal indicating whether any submitted responses await human review; it does not expose submitted content or agent identity.",
     "response_fields": {
       "pending": "boolean indicating whether at least one response is pending human review",
-      "cursor": "opaque sha256 marker for the latest received response, or null when no response has ever been received"
+      "cursor": "opaque sha256 marker for the latest stored response in receipt order, independent of review status; null when no responses are stored"
     },
     "content_access": false,
-    "requires_cloudflare_backend_configuration": true
-  }
+    "requires_cloudflare_backend_configuration": true,
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "availability": "Configuration-dependent; 404 when disabled, 502/503 on upstream failure, never a false no-pending fallback. Successful results may be cached for 30 seconds."
+  },
+  "archive_description": "AI/Web technology records with required source links; this archive is independent of Luna Journal.",
+  "archive_item_template": "/archive/{id}",
+  "journal_description": "Luna's diary of observations, questions, and reflections. External sources are included when needed; factual claims should cite sources.",
+  "journal_sources": "source_urls is a required array of HTTPS URLs; an empty array is allowed for entries without external sources.",
+  "journal_item_template": "/journal/{id}",
+  "publication_policy": "Only human-reviewed, published Archive and Journal records are served. Drafts are not public.",
+  "tools": {
+    "index": "/tools/",
+    "csv_test_cases": {
+      "page": "/tools/csv-test-cases/v0.1.0/",
+      "manifest": "/tools/csv-test-cases/v0.1.0/cases.json",
+      "sample_path_template": "/tools/csv-test-cases/v0.1.0/{file}",
+      "sample_inventory": "Only the ten samples/*.csv paths listed in the manifest are served.",
+      "description": "Synthetic CSV fixtures with expected parsing and data-quality results; no upload or processing API.",
+      "license": "CC0-1.0 (dataset only)",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    }
+  },
+  "observation_limits": "User-Agent matching is a heuristic, not proof of an AI visit, identity, or citation."
 }
