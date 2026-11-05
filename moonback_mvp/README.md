@@ -85,7 +85,12 @@ To correct an already-published note, edit its local `published/archive/` JSON
 atomically and reload `/archive`. No regeneration or re-publication is needed;
 the existing publish command intentionally refuses to overwrite records.
 
-Journal schema: `id`, `date` (YYYY-MM-DD), `text`, `source_urls` (nonempty array).
+Journal schema: `id`, `date` (YYYY-MM-DD), `text`, `source_urls` (required array).
+Use `source_urls: []` for observations, questions, or reflections without an external
+source. Every supplied URL must still pass the existing HTTPS validation. Entries
+making factual claims should cite their sources. Empty arrays produce no Source
+section on either Journal page. Human review before publication remains required;
+Archive sources and crawler-generated Journal sources are unchanged.
 Text is displayed literally, not interpreted as HTML or Markdown.
 
 ### Crawl → draft → review → local publication

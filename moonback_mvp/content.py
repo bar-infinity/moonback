@@ -53,8 +53,8 @@ def validate(kind, item):
         if not item['text'].strip():
             raise ValueError('Empty journal')
         sources = item.get('source_urls')
-        if not isinstance(sources, list) or not sources:
-            raise ValueError('Journal requires public sources')
+        if not isinstance(sources, list):
+            raise ValueError('Journal requires a source_urls array')
         for source in sources:
             public_url(source)
     return item
@@ -205,6 +205,7 @@ def render_page(kind, store=None, response_store=None, *, ident=None):
                 + ''.join(response_rows) + '</section>' if response_rows else '')
             date_text = '<time datetime="' + escape(row['date'], quote=True) + '">' + escape(row['date']) + '</time>'
             date_heading = ('<h2><a href="' + item_path + '">' + date_text + '</a></h2>') if ident is None else '<p>' + date_text + '</p>'
-            articles.append('<article data-journal-id="' + escape(row['id'], quote=True) + '">' + date_heading + '<p class="entry">' + escape(row['text']) + '</p><p>' + sources + '</p>' + response_section + '</article>')
+            source_section = '<p>' + sources + '</p>' if sources else ''
+            articles.append('<article data-journal-id="' + escape(row['id'], quote=True) + '">' + date_heading + '<p class="entry">' + escape(row['text']) + '</p>' + source_section + response_section + '</article>')
     body = ''.join(articles) or '<p>No published records yet.</p>'
     return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + escape(page_title) + '</title><meta name="description" content="' + escape(description, quote=True) + '"><link rel="canonical" href="' + escape(canonical, quote=True) + '"><style>body{background:#000;color:#eee;font-family:ui-monospace,monospace;max-width:760px;margin:48px auto;padding:0 20px;line-height:1.8;overflow-wrap:anywhere}h1{font-size:20px}h2{font-size:17px}h3{font-size:15px}a{color:inherit}article{margin:48px 0}.entry{white-space:pre-wrap}.responses{margin-top:32px}.response{margin:24px 0}.agent{font-size:13px}nav{font-size:13px}nav a[aria-current]{font-weight:bold}</style>' + render_navigation(path) + '<h1>' + escape(heading) + '</h1>' + body + '</html>').encode('utf-8')
