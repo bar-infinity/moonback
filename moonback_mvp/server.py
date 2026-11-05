@@ -23,6 +23,7 @@ MAX_RESPONSE_BODY = 8 * 1024
 MAX_RESPONSE_DRAFTS = 1000
 RESPONSE_STATUS_CACHE_SECONDS = 30
 RESPONSE_RATE_LIMITER = LocalResponseRateLimiter()
+OBSERVATION_LOG_LOCK = threading.Lock()
 TRACKING_KEYS = frozenset((
     'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
     'gclid', 'fbclid',
@@ -166,10 +167,57 @@ class Handler(SimpleHTTPRequestHandler):
         return str(ROOT / self.PUBLIC_FILES[urlparse(path).path])
 
     def do_HEAD(self):
-        self.serve(head=True)
+        self.serve_observed(head=True)
 
     def do_GET(self):
-        self.serve(head=False)
+        self.serve_observed(head=False)
+
+    def send_response_only(self, code, message=None):
+        super().send_response_only(code, message)
+        if getattr(self, '_observation_active', False) and int(code) >= 200:
+            self._observation_pending_status = int(code)
+
+    def end_headers(self):
+        super().end_headers()
+        if getattr(self, '_observation_active', False):
+            # A buffered status is not evidence that its headers were sent.
+            self._observation_status = self._observation_pending_status
+
+    def serve_observed(self, *, head):
+        path = urlparse(self.path).path
+        # Preserve the existing scope, including exclusion of status polling.
+        if path in ('/stats', '/api/responses/status'):
+            self.serve(head=head)
+            return
+        self._observation_active = True
+        self._observation_pending_status = None
+        self._observation_status = None
+        completed = False
+        try:
+            self.serve(head=head)
+            self.wfile.flush()
+            completed = self._observation_status is not None
+        finally:
+            entry = {
+                'time': datetime.now(timezone.utc).isoformat(),
+                'path': path,
+                'method': self.command,
+                'status': self._observation_status,
+                # Local write completion does not prove client receipt.
+                'response_completed': completed,
+                'ua': self.headers.get('User-Agent', '')[:180],
+                'agent_like': classify_agent(self.headers.get('User-Agent', '')),
+            }
+            self._observation_active = False
+            try:
+                with OBSERVATION_LOG_LOCK:
+                    LOG.parent.mkdir(exist_ok=True)
+                    with LOG.open('a', encoding='utf-8') as stream:
+                        stream.write(json.dumps(entry, ensure_ascii=False) + '\n')
+            except (OSError, UnicodeError, ValueError):
+                # Observation failure must never replace a public response or
+                # expose request data through diagnostics.
+                pass
 
     def log_request(self, code='-', size='-'):
         # The default HTTP access log includes the raw request line. Drop the
@@ -301,17 +349,6 @@ class Handler(SimpleHTTPRequestHandler):
             payload = json.dumps(read_stats()).encode("utf-8")
             self.send_payload(payload, "application/json; charset=utf-8", head)
             return
-
-        ua = self.headers.get("User-Agent", "")
-        entry = {
-            "time": datetime.now(timezone.utc).isoformat(),
-            "path": path,
-            "ua": ua[:180],
-            "agent_like": classify_agent(ua)
-        }
-        LOG.parent.mkdir(exist_ok=True)
-        with LOG.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
         # An allowlist prevents drafts, logs, backups and source files leaking.
         detail = re.fullmatch(r'/(archive|journal)/(' + CONTENT_ID + r')', path)
