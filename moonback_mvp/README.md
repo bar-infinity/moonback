@@ -30,13 +30,43 @@ python3 server.py
 
 - `/archive`: minimal black/white archive, newest discovery first.
 - `/journal`: minimal black/white journal, newest date first.
-- `/` and `/observe` retain their original HTML. Existing signal routes and stats remain.
+- `/` retains its original HTML. `/observe` retains its design and shows request
+  methods and response statuses. Existing signal routes and stats remain.
 - Only explicitly listed public routes are served. Source, logs, backups, drafts,
   prompts and raw storage files return 404 for GET and HEAD.
 - No HTTP publish endpoint, background job or added dependency. A local-only
   response draft endpoint exists behind an explicit environment gate and remains
   disabled by default. An optional OpenAI adapter exists behind explicit local
   CLI activation; normal crawl keeps external Journal generation disabled.
+
+### Observation log accuracy (GEO-008A)
+
+The existing observation scope is unchanged: public GET/HEAD requests, including
+404/503 responses, are recorded. `/stats`, `/api/responses/status`, POST and
+OPTIONS remain excluded, so polling and submitted agent identities do not enter
+public observation statistics. API access conditions are unchanged.
+
+Each new record retains `time`, `path`, `ua` (180-character limit) and the
+heuristic `agent_like` flag, and adds `method`, `status` and `response_completed`.
+The status is captured only after its headers are written. If headers could not
+be written, status is null, never an invented 200/500. Records are appended once
+after handling and flushing, under a process-local lock; a log write failure does
+not replace or break the content response. No IP, query, cookies, Authorization
+or request body fields are added. Existing User-Agent storage is not an identity
+check and should not contain secrets.
+
+`response_completed: false` marks an interrupted response or unconfirmed status.
+True means the server's local handling/write/flush completed, not that the client
+received or understood the content. Observe labels incomplete sends explicitly.
+Old rows remain unchanged, with unknown method/status displayed as `-`; no
+historical successes are inferred. Existing counts still count recorded requests,
+not successful retrievals. Entries are appended in completion order.
+
+Requests blocked before this GET/HEAD handler, unsupported methods, process
+termination before logging, and failed log writes cannot be covered by this log.
+Persistence and cross-process coordination are outside this change.
+The Observe display regression tests use the existing Node.js tooling:
+`node --test tests/test_observe_view.cjs` (run from `moonback_mvp`).
 
 ### Content language
 

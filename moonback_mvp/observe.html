@@ -40,6 +40,13 @@
   }).format(d) + ' JST';
 }
 
+function formatRecentRequest(x){
+  const method = typeof x.method === 'string' && x.method ? x.method : '-';
+  const status = Number.isInteger(x.status) && x.status >= 100 && x.status <= 599 ? x.status : '-';
+  const incomplete = x.response_completed === false ? ' [send incomplete]' : '';
+  return `${toJST(x.time)}  ${method} ${status} ${x.path}  ${x.agent_like ? '[agent?]' : '[human?]'}  ${x.ua}${incomplete}`;
+}
+
 async function refresh(){
       try{
         const r = await fetch('/stats');
@@ -48,9 +55,7 @@ async function refresh(){
       total.textContent = s.total_requests;
         agents.textContent = s.agent_like_requests;
         deepest.textContent = s.deepest_signal || 'none';
-        recent.textContent = (s.recent || []).map(x =>
-          `${toJST(x.time)}  ${x.agent_like ? '[agent?]' : '[human?]'}  ${x.path}  ${x.ua}`
-        ).join('\n') || 'No data yet.';
+        recent.textContent = (s.recent || []).map(formatRecentRequest).join('\n') || 'No data yet.';
       }catch(e){ recent.textContent = 'Stats unavailable. Run with server.py.'; }
     }
     refresh(); setInterval(refresh,5000);
