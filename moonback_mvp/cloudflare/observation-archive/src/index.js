@@ -1,4 +1,5 @@
-// Standalone write-only observation service. No imports/bindings from response intake.
+// Standalone private observation service. No imports/bindings from response intake.
+import {handleAdmin} from "./admin.js";
 const FIELDS = ['event_id', 'schema_version', 'time', 'path', 'method', 'status',
   'response_completed', 'ua', 'agent_like'];
 export const INSERT = `INSERT INTO observation_events
@@ -124,7 +125,12 @@ async function readBody(request) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (request.method !== 'POST' || url.pathname !== '/v1/observations' || url.search
+    const readSecret = env.MOONBACK_OBSERVATION_READ_SECRET;
+    const collision = typeof readSecret === 'string' && readSecret.length > 0
+      && await authenticate('Bearer ' + readSecret, env.MOONBACK_OBSERVATION_INGEST_SECRET);
+    const admin = await handleAdmin(request, env, authenticate, collision);
+    if (admin !== null) return admin;
+    if (collision || request.method !== 'POST' || url.pathname !== '/v1/observations' || url.search
         || !await authenticate(request.headers.get('Authorization'), env.MOONBACK_OBSERVATION_INGEST_SECRET)) {
       return reply({error:'not_found'},404);
     }

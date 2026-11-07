@@ -143,12 +143,43 @@ retries, quota exhaustion and local/remote failures can cause archive gaps.
 `response_completed` still describes local HTTP handling, not client receipt or
 D1 archival. Existing local logs and backups are never initialized or rewritten.
 
-No remote read/admin API or backfill is implemented. `/stats` does not query D1;
-Observe history remains local and can reset after Render restart even while
-remote records survive. Private retrieval/history restoration needs a separately
-approved stage. The local backup tool and unmerged GEO-009A PR remain independent.
+GEO-OBS-002 adds a separate authenticated read-only history API and Mac CLI
+(see below); backfill and Observe history restoration remain unimplemented.
+`/stats` does not query D1; Observe history remains local and can reset after
+Render restart even while remote records survive. The local backup tool and unmerged GEO-009A PR remain independent.
 Tests use fake transports/Worker DB and local SQLite; never enable live settings
 for tests. No new third-party Python/Node dependencies are required.
+
+### Private observation history (GEO-OBS-002, local only)
+
+`observation_admin.py` provides explicit `summary`, `list`, and `show <event_id>`
+commands. Each command makes one read-only HTTPS GET. The non-secret environment
+setting `MOONBACK_OBSERVATION_ADMIN_URL` is required before Secret input; no URL
+means no request. Only exact allowlisted HTTPS Worker hosts and the fixed admin
+path are accepted, without URL credentials, ports, query or redirects. The sole
+current allowlisted host is proposed, not confirmed; a different final host needs
+a reviewed allowlist update. Live deployment/host confirmation is still required.
+Run `python3 observation_admin.py --help` locally for usage without any request.
+The read secret is entered invisibly with getpass on a TTY, never through CLI
+arguments, environment variables or files. There are no redirects or retries.
+
+The observation Worker adds separate authenticated GET/HEAD management routes at
+`/v1/admin/observations`, `/summary`, and `/<event_id>`. A distinct Worker Secret
+`MOONBACK_OBSERVATION_READ_SECRET` is required; do not put it on Render. Missing
+read configuration disables reads; identical read/write secrets disable both
+routes. This does not alter the existing Journal response credentials or Worker.
+
+List default20/max50 omits paths and User-Agents. Full details require an explicit
+ID. CLI escapes controls/bidi and masks detected credentials. The API remains
+private and no-store; the summary reports **D1 saved rows and recorded UTC range**,
+never Render's queue/failure counts. No public Observe/stats changes are included.
+The optional history index migration adds storage/write overhead; apply it only
+to the dedicated observation DB after approval. Summary COUNT reads, live-page
+concurrency limits, per-isolate read limits and free-account quota still require
+operational review before enabling. No new paid feature or dependency is added.
+
+See [the observation Worker README](cloudflare/observation-archive/README.md) for
+schema, pagination, one-command examples, required configuration and limitations.
 
 ### Content language
 
