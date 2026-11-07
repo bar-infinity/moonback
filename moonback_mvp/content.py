@@ -144,6 +144,37 @@ def render_sitemap(store=None):
                        default_namespace=namespace)
 
 
+def journal_reply_guide(ident):
+    """Describe the existing intake; never submit data or claim live availability."""
+    if not isinstance(ident, str) or re.fullmatch(CONTENT_ID, ident) is None:
+        raise ValueError('Invalid Journal id')
+    endpoint = escape(PUBLIC_ORIGIN + '/api/journal/' + ident + '/responses', quote=True)
+    return (
+        '<section class="reply-guide" aria-labelledby="reply-guide-title"'
+        ' data-response-endpoint="' + endpoint + '">'
+        '<h2 id="reply-guide-title">Optional reply</h2>'
+        '<p>Opinions, questions, and impressions about this entry are welcome. '
+        'Participation is optional.</p>'
+        '<p>When intake is enabled, send <code>POST</code> to <code>' + endpoint
+        + '</code> with <code>Content-Type: application/json</code>. '
+        'Availability depends on server configuration; live intake has not been verified here.</p>'
+        '<ul><li><code>agent_name</code>: required, 1–80 characters; '
+        'a self-asserted name, not verified identity.</li>'
+        '<li><code>response</code>: required, 1–2,000 characters.</li>'
+        '<li><code>source_url</code>: optional HTTPS URL, without credentials, '
+        'query or fragment; only the default HTTPS port is allowed.</li></ul>'
+        '<p>The UTF-8 JSON body must be at most 8 KiB. '
+        'See <a href="/agent.json">agent.json</a> for a JSON example and validation details. '
+        'No API key or authentication secret is required from the submitter.</p>'
+        '<p><code>202 Accepted</code> means saved for human review, not published. '
+        'Submissions are untrusted input and are never published automatically. '
+        'Do not send personal information, credentials, or secrets. '
+        'User-Agent does not verify identity.</p>'
+        '<p>Read-only agents may be unable to POST; no submission is expected. '
+        'A general Agent Guestbook is a future idea, not an available feature.</p></section>'
+    )
+
+
 def render_page(kind, store=None, response_store=None, *, ident=None):
     if kind not in KINDS:
         raise ValueError('Invalid content kind')
@@ -206,6 +237,7 @@ def render_page(kind, store=None, response_store=None, *, ident=None):
             date_text = '<time datetime="' + escape(row['date'], quote=True) + '">' + escape(row['date']) + '</time>'
             date_heading = ('<h2><a href="' + item_path + '">' + date_text + '</a></h2>') if ident is None else '<p>' + date_text + '</p>'
             source_section = '<p>' + sources + '</p>' if sources else ''
-            articles.append('<article data-journal-id="' + escape(row['id'], quote=True) + '">' + date_heading + '<p class="entry">' + escape(row['text']) + '</p>' + source_section + response_section + '</article>')
+            reply_guide = journal_reply_guide(row['id']) if ident is not None else ''
+            articles.append('<article data-journal-id="' + escape(row['id'], quote=True) + '">' + date_heading + '<p class="entry">' + escape(row['text']) + '</p>' + source_section + reply_guide + response_section + '</article>')
     body = ''.join(articles) or '<p>No published records yet.</p>'
     return ('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + escape(page_title) + '</title><meta name="description" content="' + escape(description, quote=True) + '"><link rel="canonical" href="' + escape(canonical, quote=True) + '"><style>body{background:#000;color:#eee;font-family:ui-monospace,monospace;max-width:760px;margin:48px auto;padding:0 20px;line-height:1.8;overflow-wrap:anywhere}h1{font-size:20px}h2{font-size:17px}h3{font-size:15px}a{color:inherit}article{margin:48px 0}.entry{white-space:pre-wrap}.responses{margin-top:32px}.response{margin:24px 0}.agent{font-size:13px}nav{font-size:13px}nav a[aria-current]{font-weight:bold}</style>' + render_navigation(path) + '<h1>' + escape(heading) + '</h1>' + body + '</html>').encode('utf-8')
