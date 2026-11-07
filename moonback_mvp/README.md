@@ -34,7 +34,8 @@ python3 server.py
   methods and response statuses. Existing signal routes and stats remain.
 - Only explicitly listed public routes are served. Source, logs, backups, drafts,
   prompts and raw storage files return 404 for GET and HEAD.
-- No HTTP publish endpoint, background job or added dependency. A local-only
+- No HTTP publish endpoint or added dependency. Observation archival has an
+  explicitly enabled background sender (see GEO-OBS-001 below). A local-only
   response draft endpoint exists behind an explicit environment gate and remains
   disabled by default. An optional OpenAI adapter exists behind explicit local
   CLI activation; normal crawl keeps external Journal generation disabled.
@@ -67,6 +68,87 @@ termination before logging, and failed log writes cannot be covered by this log.
 Persistence and cross-process coordination are outside this change.
 The Observe display regression tests use the existing Node.js tooling:
 `node --test tests/test_observe_view.cjs` (run from `moonback_mvp`).
+
+### Optional private observation archive (GEO-OBS-001, local prototype)
+
+Disabled by default. No production resources/settings have been created by this
+prototype. Startup reads these three settings once:
+
+- `MOONBACK_OBSERVATION_ARCHIVE_ENABLED=1`
+- `MOONBACK_OBSERVATION_ARCHIVE_URL`: approved HTTPS URL ending exactly in
+  `/v1/observations`, with no query, credentials, fragment or nonstandard port.
+- `MOONBACK_OBSERVATION_ARCHIVE_SECRET`: dedicated ingestion credential supplied
+  through the hosting environment, never committed or printed.
+
+Missing/invalid configuration keeps the existing local-only behavior. Importing
+`server` or setting environment variables in a running process does not start a
+sender. In enabled mode only, each observed event receives `event_id` (UUID4) and
+`schema_version: 1`, written to the local JSONL and kept stable for retries.
+OFF mode retains the old JSONL shape. Delivery metadata is omitted from public
+`/stats` recent rows; Observe and the existing observation/exclusion scope remain.
+The current public stats still expose recent observation fields, including UA;
+this feature does not make those existing fields private.
+
+`observation_archive.py` submits an immutable validated copy after local append
+is attempted, outside the observation lock. One daemon thread sends asynchronously;
+public handlers never wait for Worker network I/O. Queue budget includes queued
+and in-flight payloads: at most256 events and512 KiB serialized data plus bounded
+object overhead. Each event is at most8 KiB. Full/stopped queues reject new events
+without deleting local logs. No durable spool, log rotation or automatic deletion.
+
+The separate Worker/schema live in `cloudflare/observation-archive/`. They must
+use a **new observation Worker and D1**, binding `OBS_DB`, and separate Worker
+Secret `MOONBACK_OBSERVATION_INGEST_SECRET`. Never reuse the response DB or either
+response credential. No existing response Worker, binding, SQL or status cursor
+is modified. A separate DB still shares account-level free quotas.
+
+POST uses fixed browser-compatible UA, no proxies/redirects, timeout8 seconds.
+The Worker authenticates before querying D1, validates a flat allowlisted schema,
+and acknowledges201 only after a successful fixed parameterized INSERT. A replay
+of identical canonical content is acknowledged without another row; an existing
+ID with different content returns409 and never overwrites. The client checks the
+small fixed ack and matching event ID; it never accepts response-body echoes.
+
+There are at most4 attempts per event. Transient connection/timeouts,429 and5xx
+use delays2/4/8 seconds; permanent auth/input/conflict/malformed-ack errors stop
+that event. Exact documented D1 database/account storage or Free daily row-limit
+errors return507, mapped to non-retryable `capacity`. Unrecognized quota/storage
+and other D1 failures remain503 and exhaust this same bounded budget. Matching
+accepts only complete documented messages, optionally prefixed by `D1_ERROR: `;
+unknown formats are not guessed to be capacity failures. No automatic paid
+upgrade/provider fallback. This is
+not a global outage circuit breaker; sustained failed traffic can still generate
+bounded attempts for each new event. A production budget/health-monitoring policy
+must be reviewed before enabling. No success is claimed for failed or pending
+entries. `ObservationArchive.health()` provides only process-local counters
+(stored/failed/retries/rejected/dropped/abandoned/pending), bytes and fixed error
+categories. It has no public HTTP endpoint or durable health history in this phase.
+
+Privacy: original local UA storage is unchanged. Before enqueueing, existing
+`journal_safety.contains_secret` blocks the **entire external event** if a path/UA
+or other string looks like a credential. Worker validation repeats credential
+family checks. No IP/query/cookie/Authorization/request-body fields are accepted.
+Control characters, invalid timestamps and oversized fields are also rejected.
+No event/UA/secret/provider body is printed. Public contacts alone are not blocked.
+This is heuristic: it may miss secrets or reject public examples; public UA/path
+can still contain personal information. This archive is not an exact backup of
+all local bytes, and it is not a complete privacy classifier.
+
+Pending data is memory-only. Forced termination/restart discards it. `close()`
+counts queued events as abandoned, stops retries and does not wait indefinitely
+for in-flight requests; an in-flight request can still commit remotely. A lost ack
+can leave a committed event reported locally as failed; identical retries dedupe.
+App crashes before capture, invalid/secret events, queue overflow, exhausted
+retries, quota exhaustion and local/remote failures can cause archive gaps.
+`response_completed` still describes local HTTP handling, not client receipt or
+D1 archival. Existing local logs and backups are never initialized or rewritten.
+
+No remote read/admin API or backfill is implemented. `/stats` does not query D1;
+Observe history remains local and can reset after Render restart even while
+remote records survive. Private retrieval/history restoration needs a separately
+approved stage. The local backup tool and unmerged GEO-009A PR remain independent.
+Tests use fake transports/Worker DB and local SQLite; never enable live settings
+for tests. No new third-party Python/Node dependencies are required.
 
 ### Content language
 

@@ -6,6 +6,7 @@ import ipaddress, json, re, os, threading, time
 from content import (FileStore, render_page, render_sitemap, validate,
                      CONTENT_ID, PUBLIC_ORIGIN, PublishedItemNotFound)
 import tools_web
+from observation_archive import configured_archive, new_event_fields
 from response import ResponseValidationError, build_draft_response
 from response_store import (
     CloudflareResponseStore, CloudflareStoreError, FileResponseStore,
@@ -24,6 +25,7 @@ MAX_RESPONSE_DRAFTS = 1000
 RESPONSE_STATUS_CACHE_SECONDS = 30
 RESPONSE_RATE_LIMITER = LocalResponseRateLimiter()
 OBSERVATION_LOG_LOCK = threading.Lock()
+OBSERVATION_ARCHIVE = None  # Configured once by main(); imports/tests never activate it.
 TRACKING_KEYS = frozenset((
     'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
     'gclid', 'fbclid',
@@ -149,7 +151,10 @@ def read_stats():
         "total_requests": len(rows),
         "agent_like_requests": sum(1 for r in rows if r.get("agent_like")),
         "deepest_signal": deepest,
-        "recent": rows[-20:][::-1]
+        # Delivery identifiers stay internal; preserve the existing public stats fields.
+        "recent": [{k: v for k, v in row.items()
+                    if k not in ("event_id", "schema_version")}
+                   for row in rows[-20:][::-1]]
     }
 
 class Handler(SimpleHTTPRequestHandler):
@@ -199,6 +204,7 @@ class Handler(SimpleHTTPRequestHandler):
             completed = self._observation_status is not None
         finally:
             entry = {
+                **(new_event_fields() if OBSERVATION_ARCHIVE is not None else {}),
                 'time': datetime.now(timezone.utc).isoformat(),
                 'path': path,
                 'method': self.command,
@@ -218,6 +224,12 @@ class Handler(SimpleHTTPRequestHandler):
                 # Observation failure must never replace a public response or
                 # expose request data through diagnostics.
                 pass
+            # Never hold OBSERVATION_LOG_LOCK during queueing/network activity.
+            if OBSERVATION_ARCHIVE is not None:
+                try:
+                    OBSERVATION_ARCHIVE.submit(entry)
+                except Exception:
+                    pass  # Archive failures cannot replace the public response.
 
     def log_request(self, code='-', size='-'):
         # The default HTTP access log includes the raw request line. Drop the
@@ -422,4 +434,11 @@ if __name__ == "__main__":
     os.chdir(ROOT)
     port = int(os.environ.get("PORT", "8000"))
     print(f"Moonback running at http://127.0.0.1:{port}")
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    OBSERVATION_ARCHIVE = configured_archive()
+    if OBSERVATION_ARCHIVE is not None:
+        OBSERVATION_ARCHIVE.start()
+    try:
+        ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    finally:
+        if OBSERVATION_ARCHIVE is not None:
+            OBSERVATION_ARCHIVE.close()
