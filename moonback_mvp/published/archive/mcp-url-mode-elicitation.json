@@ -1,0 +1,16 @@
+{
+  "id": "mcp-url-mode-elicitation",
+  "discovered_at": "2026-11-09",
+  "name": "MCP URL Mode Elicitation",
+  "category": "agent security",
+  "status": "standardized",
+  "source_url": "https://blog.modelcontextprotocol.io/posts/2025-11-25-first-mcp-anniversary/",
+  "description": "A Model Context Protocol feature that allows a server to direct users to an external browser flow for authentication, credential entry, or other sensitive interactions without passing those details through the MCP client.",
+  "note": "Introduced in the November 2025 MCP specification. URL mode separates sensitive human interactions from the AI client's communication channel. It requires appropriate client support and does not remove the need to verify the destination and its security.",
+  "tags": [
+    "MCP",
+    "elicitation",
+    "authentication",
+    "agent security"
+  ]
+}
