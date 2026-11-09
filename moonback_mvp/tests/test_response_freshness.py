@@ -39,7 +39,15 @@ class ResponseFreshnessTests(unittest.TestCase):
         return json.loads(self.monitor.read_text())
 
     def test_initial_seed_never_claims_observation(self):
-        actual = sync.decode_monitor(sync.MONITOR_DESTINATION.read_bytes())
+        seed = {
+            'schema_version': 1, 'last_attempt_at': None, 'last_success_at': None,
+            'result': 'never_checked', 'error_category': None,
+            'pending': None, 'cursor': None,
+        }
+        self.monitor.parent.mkdir()
+        self.monitor.write_text(json.dumps(seed), encoding='utf-8')
+        actual = sync.decode_monitor(self.monitor.read_bytes())
+        self.assertEqual(actual, seed)
         self.assertEqual(actual, sync.never_checked())
         self.assertIsNone(actual['pending'])
         self.assertEqual(sync.monitor_state(actual, now=BASE), 'unknown')
