@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "last_attempt_at": null,
-  "last_success_at": null,
-  "result": "never_checked",
+  "last_attempt_at": "2026-11-09T08:02:55.544176Z",
+  "last_success_at": "2026-11-09T08:02:55.854750Z",
+  "result": "success",
   "error_category": null,
-  "pending": null,
+  "pending": false,
   "cursor": null
 }
