@@ -143,7 +143,7 @@ class StatusSyncTests(unittest.TestCase):
                                 (RuntimeError('private-provider-body'), 'internal_error')]:
             output = io.StringIO()
             with patch.object(sync.sys, 'argv', ['sync_response_status.py', '--live']), \
-                    patch.object(sync, 'sync', side_effect=error), contextlib.redirect_stdout(output):
+                    patch.object(sync, 'sync_monitored', side_effect=error), contextlib.redirect_stdout(output):
                 self.assertEqual(sync.main(), 1)
             self.assertEqual(output.getvalue(), 'Status sync failed: ' + expected + '\n')
 
@@ -166,7 +166,7 @@ class WorkflowSafetyTests(unittest.TestCase):
     def test_actual_workflow_shell_commits_one_path_and_skips_unchanged(self):
         # Execute the actual workflow shell with a fake git; no Git repo/push is used.
         block = WORKFLOW.read_text().split('        run: |\n', 1)[1]
-        shell = '\n'.join(line[10:] for line in block.splitlines())
+        shell = '\n'.join(line[10:] for line in block.splitlines() if line.startswith('          '))
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder); log = base / 'git-calls.jsonl'; fake = base / 'git'
             fake.write_text('#!/usr/bin/env python3\nimport os,sys,json\n'
@@ -188,7 +188,7 @@ class WorkflowSafetyTests(unittest.TestCase):
                 self.assertEqual(result.returncode, expected_code, result.stderr)
                 calls = [json.loads(line) for line in log.read_text().splitlines()]
                 self.assertEqual(sum(a[:1]==['push'] for a in calls), pushes)
-                self.assertEqual(calls[0], ['add', '--', 'moonback_mvp/status/response-status.json'])
+                self.assertEqual(calls[0], ['add', '--', 'moonback_mvp/status/response-monitor.json'])
                 commits = [a for a in calls if 'commit' in a]
                 if pushes:
                     self.assertEqual(len(commits), 1)

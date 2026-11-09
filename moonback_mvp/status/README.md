@@ -1,83 +1,142 @@
-# Response status snapshot
+# Response status and freshness monitor
 
-GitHub Actions will create `response-status.json` here only after a successful
-validated public GET. No initial JSON is shipped: an unobserved state must not
-be represented as `pending=false`.
+GitHub Actions reads the existing public Cloudflare status endpoint once per run.
+No response body, author, raw ID, management URL, credential or notification
+history is copied to GitHub. This is Journal response monitoring, separate from
+GEO-OBS observation logging.
 
-The file contains exactly `pending` (boolean) and `cursor` (null or
-`sha256:<64 lowercase hex characters>`). It is a last-known successful snapshot,
-not a live query or a heartbeat. No response content, raw IDs, agent names,
-timestamps, credentials or notification history are stored here.
+## Public files
 
-The workflow runs hourly at minute 17 UTC (JST: every hour at minute 17) and can
-also be dispatched manually on `main`. Identical semantic content creates no
-commit, including after JSON formatting changes. Failed reads leave the previous
-file untouched and fail the Actions run. A missing file means unknown.
+`response-status.json` keeps exactly the existing two fields: `pending` (boolean)
+and `cursor` (null or `sha256:<64 lowercase hex characters>`). It changes only on
+a successful, validated GET when the signal changes. A failed read leaves its
+bytes untouched. If absent, it is unknown, not `pending=false`.
+
+`response-monitor.json` has exactly these seven fields (initial checked-in state):
+
+```json
+{
+  "schema_version": 1,
+  "last_attempt_at": null,
+  "last_success_at": null,
+  "result": "never_checked",
+  "error_category": null,
+  "pending": null,
+  "cursor": null
+}
+```
+
+- UTC timestamps use `YYYY-MM-DDTHH:MM:SS.ffffffZ`. `last_attempt_at` is captured
+  before the GET; `last_success_at` is captured after validating the response.
+- Success sets `result=success`, clears `error_category`, and copies the proven
+  signal. Even an unchanged signal refreshes both timestamps in the monitor.
+- Fetch/validation failure sets `result=failure`, a new attempt time and a fixed
+  error category, preserving the previous success time and signal. Initial
+  failure leaves success time, pending and cursor null. Never infer a successful
+  time from the legacy file's commit date or filesystem modification time.
+- `never_checked` keeps version 1 and that result; its other five fields are null. A
+  boolean signal is only valid with a real successful timestamp. Success time
+  cannot precede its attempt; a retained success cannot follow a failed attempt.
+  Future times, unknown fields, duplicate keys and contradictory data are invalid.
+
+Fixed error categories: `invalid_schema`, `invalid_pending`, `invalid_cursor`,
+`inconsistent_signal`, `response_too_large`, `malformed_json`, `redirect_refused`,
+`http_error`, `invalid_content_type`, `connection_or_timeout`,
+`unsafe_destination`, `invalid_existing_snapshot`, `invalid_existing_monitor`,
+`storage_error`, `invalid_timestamp`, `internal_error`, `publication_mismatch`.
+Raw provider errors are never used as categories or printed.
+
+## Workflow and failure semantics
+
+The existing hourly minute-17 UTC schedule (also minute 17 in JST) and manual
+trigger on `main` remain unchanged. There is one fixed HTTPS GET, no redirect,
+retry, authorization or new periodic task. The offline publication validation
+step adds no network request.
+
+The read step may fail without skipping publication: the workflow validates the
+local JSON pair, commits only the two allowed paths with `[skip render]`, and
+then explicitly fails the job if the read failed. A recorded failure therefore
+never makes the workflow green. Commit/push/validation failures also fail the job.
+A normal push conflict stops without force, rebase or retry. Concurrency prevents
+overlapping sync jobs, but cannot lock a human push.
+
+Each file uses an atomic replacement; the pair is not a filesystem transaction.
+The publication gate rejects a partial or contradictory pair before staging.
+Corrupt prior metadata is not silently overwritten. Disk failure, cancellation,
+checkout failure, denied Git permissions or push conflict may prevent even the
+failure metadata from reaching GitHub. The remote files then remain old: use the
+freshness deadline and Actions conclusion, never assume no pending responses.
+A partial local pair requires inspection rather than automatic repair.
+
+Global workflow permissions remain empty; the one job uses `contents: write`.
+GitHub does not provide file-path-scoped contents permission. Staging is limited
+to the two fixed JSON paths and unexpected staged files abort publication.
+Checkout remains pinned and uses GitHub's short-lived automatic `GITHUB_TOKEN`,
+not a new PAT. External JSON never supplies shell code, paths or commit messages.
+
+Successful runs now create heartbeat commits even when pending/cursor are
+unchanged; failure attempts also update metadata. Every automatic commit includes
+`[skip render]` to skip Render Auto-Deploy. This does not prohibit manual deploys.
+No Render setting or build filter is changed. Standard public-repository Actions
+runners require no new service; existing account allowances/policies still apply.
+Schedules are best-effort and may be delayed, dropped or disabled after inactivity.
+A workflow that never starts cannot record an attempt time or failure metadata.
+`last_attempt_at` records an actual script attempt, not a scheduled slot;
+the three-hour freshness rule must detect this gap as stale or unknown.
 
 ## Reading from ChatGPT / Luna
 
-Read this exact file from `bar-infinity/moonback`, branch `main`. Do not use a
-search snippet or an old conversation copy as the current snapshot. Connector
-indexing can lag; successful GitHub writing does not prove connector freshness.
-Verify the connector can actually fetch this file after first deployment.
+Read the exact `response-monitor.json` on `bar-infinity/moonback`, branch `main`,
+not a search snippet or conversation copy. Connector indexing may lag: a GitHub
+push does not prove that ChatGPT retrieved the latest revision. The legacy signal
+alone cannot establish freshness. Reader rules are implemented as pure,
+side-effect-free `monitor_state()` and `notification_decision()` functions in
+`scripts/sync_response_status.py`; they do not create or change a Luna task.
 
-Notify only when `pending=true` and `cursor` differs from the last successfully
-notified cursor. Keep that notification checkpoint in Luna's existing durable
-task state, not in this shared snapshot. Retain it across `pending=false` and
-record it only after notification succeeds. If the task cannot retain a durable
-checkpoint, cross-run duplicate suppression is not guaranteed. No task is
-created or modified by this implementation.
+1. Retrieval failure, invalid JSON/schema/timestamps, future dates,
+   `never_checked`, or `result=failure`: **unknown / unable to confirm**.
+2. Valid `result=success` with success age at most three hours: **healthy**.
+3. Valid success older than three hours: **stale**, never "no new responses".
+4. Healthy `pending=false`: "No pending responses at the last successful check."
+5. Healthy `pending=true` without an established notification checkpoint:
+   "Pending responses on the initial check" (`initial_pending`).
+6. Healthy `pending=true` with a cursor absent from the supplied notified-cursor
+   set: a **new candidate**. An already notified cursor suppresses a duplicate.
 
-Because unchanged signals deliberately produce no commits, the last file commit
-date is the time the signal last changed, not the last successful poll. Consult
-the workflow's latest successful run for freshness (a suggested initial overdue
-threshold is three hours for this hourly schedule). On a failed/overdue run or
-unavailable GitHub fetch, report status unknown; do not infer no new responses.
-Polling can miss transient signals that disappear between successful polls.
+The caller supplies a set of successfully notified cursors. `None` means no
+checkpoint; an empty set means initialized history with no notifications. Keep
+history across `pending=false`, and update it only after successful notification.
+Notification history is not human review, approval or read status. Do not infer
+that any response has been reviewed from an alert or absence of an alert.
 
-## GitHub and Render safety
+**Whether the actual Free-Roaming Luna task durably retains notified cursors is
+unverified.** No automation, memory store or notification checkpoint is configured
+by this change. Cross-run deduplication requires separately verifying that state.
+A crash between notification and checkpoint storage can cause repeat alerts.
 
-The workflow is only for this repository's `main`, with no pull-request trigger.
-Global permissions are empty; its sole job gets `contents: write` for the
-automatic commit. GitHub does not offer file-path-scoped `GITHUB_TOKEN` contents
-permissions. The script itself has no Git operations. The workflow stages only
-the fixed snapshot path, verifies that staged path, uses a fixed commit message,
-and performs a normal push without retry or force. A concurrent developer push
-causes a safe non-fast-forward failure; the next authorized run can catch up.
-Workflow concurrency prevents overlapping sync jobs; it cannot lock humans.
-
-Public GET requires no MoonBack/Cloudflare/API secret. Checkout uses GitHub's
-automatic short-lived `GITHUB_TOKEN` for repo access and push, not a new PAT.
-Do not add Worker secrets to Actions. Checkout is pinned to an official commit.
-External JSON never supplies paths, shell arguments, expressions or Git messages.
-
-Render supports `[skip render]` in commit messages; every automatic snapshot
-commit includes it. No Render setting or linked branch is changed. This is an
-auto-deploy skip, not a prohibition on later manual deployments. Build filters
-excluding this path are an optional separately approved safeguard. If an initial
-implementation push contains application changes, do not skip its legitimate
-deployment without reviewing that whole push first.
+Cursor hashes the latest received response ID across statuses, not the current
+pending set. Review/status changes alone do not change it. It is neither a list
+nor a per-message read marker: multiple arrivals between polls can collapse into
+one signal, and pending items can be missed if they disappear between polls.
+Deleting/restoring rows can revert a cursor; retaining notified-cursor history
+reduces repeats but cannot guarantee delivery or detect every individual reply.
+Opaque cursors are not credentials or proof of an AI author's identity.
 
 ## Rollout (separate approval required)
 
-1. Review and commit the local implementation; this step alone does not run it.
-2. Approve pushing the workflow to the default `main` branch. A pushed schedule
-   may start automatically if repository Actions are enabled.
-3. Confirm repository Actions policy allows the pinned checkout and the job's
-   `contents: write`; branch rules must allow the bot's ordinary push. Do not
-   weaken protections or add a PAT automatically if a push is rejected.
-4. Run the workflow once via Actions → Sync public response status → Run workflow.
-5. Check the validated JSON, bot commit, and Render's skipped-deploy event.
-6. Verify the ChatGPT GitHub connector reads the exact file on `main`; then update
-   the existing Luna task's reading instruction and notification checkpoint.
-7. Confirm a later unchanged run creates no commit, and failure remains unknown.
-
-Scheduled runs are best-effort and can be delayed/dropped by GitHub. Public-repo
-schedules can disable after prolonged repository inactivity. Review Actions
-allowances before enabling; this implementation does not purchase services or
-change billing settings. To stop polling, disable the workflow manually.
+1. Review and commit this implementation; local tests do not poll production.
+2. Separately approve pushing/merging the workflow to the default `main` branch.
+   An enabled schedule may run once merged; do not dispatch it during local work.
+3. Verify repository policies allow the pinned checkout and ordinary bot push.
+   Do not weaken protections or add credentials automatically if rejected.
+4. With approval, run once and verify the seven-field monitor, unchanged legacy
+   format, Actions conclusion, `[skip render]` commit and skipped Render deploy.
+5. Verify the ChatGPT connector can retrieve the exact current monitor; update
+   the existing Luna reading instructions only after separate authorization.
+6. Verify checkpoint persistence before claiming durable duplicate suppression.
 
 Official references:
+- https://docs.github.com/en/actions/reference/workflows-and-actions/contexts
+- https://docs.github.com/en/actions/reference/workflows-and-actions/expressions
 - https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows
-- https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency
 - https://render.com/docs/deploys#skipping-an-auto-deploy

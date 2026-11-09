@@ -20,28 +20,45 @@ jobs:
       contents: write
     steps:
       - name: Checkout main
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 1
           persist-credentials: true
       - name: Read and validate public signal
+        id: read_signal
+        continue-on-error: true
         run: python3 scripts/sync_response_status.py --live
-      - name: Commit only a changed snapshot
+      - name: Validate publication without network
+        id: validate_publication
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' && steps.read_signal.outcome != 'skipped' }}
+        run: python3 scripts/sync_response_status.py --validate-publication
+      - name: Commit only changed status files
+        if: ${{ !cancelled() && steps.validate_publication.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
-          git add -- moonback_mvp/status/response-status.json
+          git add -- moonback_mvp/status/response-monitor.json
+          if [[ -f moonback_mvp/status/response-status.json ]]; then
+            git add -- moonback_mvp/status/response-status.json
+          fi
           if git diff --cached --quiet; then
-            echo "Status snapshot unchanged; no commit."
+            echo "Status files unchanged; no commit."
             exit 0
           fi
-          if [[ "$(git diff --cached --name-only)" != "moonback_mvp/status/response-status.json" ]]; then
-            echo "Unexpected staged files; stopping."
-            exit 1
-          fi
+          staged_paths="$(git diff --cached --name-only)"
+          while IFS= read -r staged_path; do
+            case "$staged_path" in
+              moonback_mvp/status/response-status.json|moonback_mvp/status/response-monitor.json) ;;
+              *) echo "Unexpected staged files; stopping."; exit 1 ;;
+            esac
+          done <<< "$staged_paths"
           git diff --cached --check
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit -m 'Sync response status [skip render]'
           # Non-fast-forward rejection fails the run: no force, rebase or retry.
           git push origin HEAD:main
+      - name: Preserve failed sync conclusion
+        if: ${{ !cancelled() && steps.read_signal.outcome != 'success' }}
+        run: exit 1
